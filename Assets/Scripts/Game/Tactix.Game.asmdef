@@ -1,0 +1,17 @@
+{
+    "name": "Tactix.Game",
+    "rootNamespace": "Tactix.Game",
+    "references": [
+        "Tactix.Core",
+        "UnityEngine.UI"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
