@@ -248,3 +248,6 @@ Lines are flushed as written, so a crash loses at most the current line.
 - Tests: `Assets/Tests/EditMode` — rules unit tests plus seeded random
   self-play that validates termination, legality, projection soundness, and the
   JSONL schema end-to-end.
+- Proposed but unimplemented features (artillery spotting, victory conditions
+  beyond elimination, fog of war, POW capture, combat uncertainty) are designed
+  out in [ROADMAP.md](ROADMAP.md), including their schema and ML costs.
