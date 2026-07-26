@@ -19,11 +19,12 @@ namespace Tactix.Core
         [JsonConverter(typeof(StringEnumConverter), true)] // camelCase string
         public UnitType Type { get; set; }
 
+        /// <summary>World position (continuous). Tile (i,j) is centred at (i,j).</summary>
         [JsonProperty("x")]
-        public int X { get; set; }
+        public double X { get; set; }
 
         [JsonProperty("y")]
-        public int Y { get; set; }
+        public double Y { get; set; }
 
         [JsonProperty("hp")]
         public int Hp { get; set; }

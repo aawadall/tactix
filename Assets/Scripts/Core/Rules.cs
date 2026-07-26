@@ -5,55 +5,171 @@ using System.Linq;
 namespace Tactix.Core
 {
     /// <summary>
-    /// The authoritative rules engine. All legality questions are answered by the
-    /// pure functions here, and <see cref="Apply"/> is the only way to advance a
-    /// state. No illegal action is applicable: Apply validates against the same
-    /// legal-action computation used for UI highlighting, bots, and (later) ML
-    /// action masking.
+    /// The authoritative rules engine for continuous space.
+    ///
+    /// Movement is a straight-line dash: a unit may move to any point within its
+    /// move range whose connecting segment stays in bounds, avoids impassable
+    /// terrain, never crosses a cliff, and leaves the unit clear of others. The
+    /// legal region is therefore star-shaped around the unit, which makes both
+    /// exact testing (<see cref="IsLegalMoveTarget"/>) and constraint projection
+    /// (<see cref="ProjectMove"/>) cheap and deterministic.
+    ///
+    /// Because move targets are continuous there is no finite list of legal
+    /// moves. The authority is the predicate; <see cref="GetMoveRegion"/> and
+    /// <see cref="SampleLegalMoves"/> describe or sample that region for UI,
+    /// bots, and future policies, and <see cref="Apply"/> re-validates every
+    /// action against the predicate. Attacks stay pointer-based and fully
+    /// enumerable.
     /// </summary>
     public static class Rules
     {
-        /// <summary>All 8 neighbor offsets (diagonals included).</summary>
-        private static readonly (int dx, int dy)[] Directions =
-        {
-            (-1, -1), (0, -1), (1, -1),
-            (-1, 0), (1, 0),
-            (-1, 1), (0, 1), (1, 1),
-        };
+        /// <summary>Rays used to describe the move region (UI outline and sampling).</summary>
+        public const int MoveRegionRays = 72;
 
-        public static int ChebyshevDistance(int x0, int y0, int x1, int y1)
+        public static double Distance(double x0, double y0, double x1, double y1) =>
+            Geometry.Distance(x0, y0, x1, y1);
+
+        // ---------- movement ----------
+
+        /// <summary>
+        /// The authoritative movement predicate: true iff this unit may legally
+        /// dash to (targetX, targetY) in the given state.
+        /// </summary>
+        public static bool IsLegalMoveTarget(GameState state, int unitId, double targetX, double targetY)
         {
-            return Math.Max(Math.Abs(x1 - x0), Math.Abs(y1 - y0));
+            var unit = state.GetUnit(unitId);
+            if (unit == null || state.Winner != null) return false;
+            if (unit.Owner != state.CurrentPlayer || unit.HasMoved) return false;
+            if (state.TurnPhase != TurnPhase.Move) return false;
+
+            if (double.IsNaN(targetX) || double.IsNaN(targetY)) return false;
+            if (!Geometry.IsInsideBoard(state, targetX, targetY)) return false;
+
+            double distance = Distance(unit.X, unit.Y, targetX, targetY);
+            if (distance > unit.Stats.MoveRange + Geometry.Epsilon) return false;
+            if (distance <= Geometry.Epsilon) return false; // a no-op is not a move
+
+            if (state.TerrainAtPoint(targetX, targetY) == TerrainType.Impassable) return false;
+            if (!Geometry.IsPathWalkable(state, unit.X, unit.Y, targetX, targetY)) return false;
+
+            return IsClearOfOtherUnits(state, unit, targetX, targetY);
+        }
+
+        /// <summary>Destination must not overlap another unit's body.</summary>
+        private static bool IsClearOfOtherUnits(GameState state, Unit unit, double x, double y)
+        {
+            foreach (var other in state.Units)
+            {
+                if (other.Id == unit.Id) continue;
+                double minSeparation = unit.Stats.Radius + other.Stats.Radius;
+                if (Distance(other.X, other.Y, x, y) < minSeparation - Geometry.Epsilon) return false;
+            }
+            return true;
         }
 
         /// <summary>
-        /// Legal moves for the given unit in the given state. Empty unless the unit
-        /// belongs to the current player, has not moved, the turn is still in the
-        /// Move phase, and the game is not over.
-        /// Movement: BFS over the 8-connected grid, each step cost 1, up to the
-        /// unit's move range. Impassable tiles and enemy units block; friendly
-        /// units can be passed through but not ended on.
+        /// Star-shaped description of everywhere the unit may move: the maximum
+        /// travelable distance along <see cref="MoveRegionRays"/> evenly spaced
+        /// directions (terrain only — unit bodies are checked per destination).
+        /// Empty when the unit cannot move at all.
         /// </summary>
-        public static List<MoveAction> GetLegalMoves(GameState state, int unitId)
+        public static double[] GetMoveRegion(GameState state, int unitId, int rayCount = MoveRegionRays)
+        {
+            var unit = state.GetUnit(unitId);
+            if (unit == null || state.Winner != null) return Array.Empty<double>();
+            if (unit.Owner != state.CurrentPlayer || unit.HasMoved) return Array.Empty<double>();
+            if (state.TurnPhase != TurnPhase.Move) return Array.Empty<double>();
+
+            var reach = new double[rayCount];
+            for (int i = 0; i < rayCount; i++)
+            {
+                double angle = 2.0 * Math.PI * i / rayCount;
+                Geometry.RayDistance(state, unit.X, unit.Y, Math.Cos(angle), Math.Sin(angle),
+                    unit.Stats.MoveRange, out double reachable);
+                reach[i] = reachable;
+            }
+            return reach;
+        }
+
+        /// <summary>
+        /// Constraint projection: the closest legal destination to the requested
+        /// point along the same heading (what a continuous policy's raw output
+        /// gets clamped to). Returns false when the unit cannot move at all.
+        /// </summary>
+        public static bool ProjectMove(GameState state, int unitId, double requestedX, double requestedY, out double x, out double y)
+        {
+            x = requestedX;
+            y = requestedY;
+            var unit = state.GetUnit(unitId);
+            if (unit == null) return false;
+            if (IsLegalMoveTarget(state, unitId, requestedX, requestedY)) return true;
+
+            double dx = requestedX - unit.X, dy = requestedY - unit.Y;
+            double len = Math.Sqrt(dx * dx + dy * dy);
+            if (len < Geometry.Epsilon) return false;
+            double ux = dx / len, uy = dy / len;
+
+            Geometry.RayDistance(state, unit.X, unit.Y, ux, uy, unit.Stats.MoveRange, out double reach);
+            double candidate = Math.Min(len, reach);
+
+            // Back off along the ray until the destination is also clear of bodies.
+            const double stepBack = 0.05;
+            for (double d = candidate; d > Geometry.Epsilon; d -= stepBack)
+            {
+                double px = unit.X + ux * d, py = unit.Y + uy * d;
+                if (IsLegalMoveTarget(state, unitId, px, py))
+                {
+                    x = px;
+                    y = py;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Samples legal destinations for the unit (area-uniform within the
+        /// star-shaped region). Sampling is for bots, UI, and data generation —
+        /// legality is always decided by <see cref="IsLegalMoveTarget"/>, which
+        /// every sample is validated against before being returned.
+        /// </summary>
+        public static List<MoveAction> SampleLegalMoves(GameState state, int unitId, int count, Random rng)
         {
             var moves = new List<MoveAction>();
-            var unit = state.GetUnit(unitId);
-            if (unit == null || state.Winner != null) return moves;
-            if (unit.Owner != state.CurrentPlayer || unit.HasMoved) return moves;
-            if (state.TurnPhase != TurnPhase.Move) return moves;
+            var reach = GetMoveRegion(state, unitId);
+            if (reach.Length == 0) return moves;
 
-            foreach (var (x, y) in ReachableTiles(state, unit))
+            var unit = state.GetUnit(unitId);
+            for (int attempt = 0; attempt < count * 6 && moves.Count < count; attempt++)
             {
+                int ray = rng.Next(reach.Length);
+                double angle = 2.0 * Math.PI * ray / reach.Length;
+                double maxDistance = reach[ray];
+                if (maxDistance <= Geometry.PathBackoff) continue;
+
+                // sqrt keeps samples area-uniform rather than clustered at the centre
+                double distance = maxDistance * Math.Sqrt(rng.NextDouble());
+                double x = unit.X + Math.Cos(angle) * distance;
+                double y = unit.Y + Math.Sin(angle) * distance;
+                if (!IsLegalMoveTarget(state, unitId, x, y)) continue;
                 moves.Add(new MoveAction { UnitId = unitId, TargetX = x, TargetY = y });
             }
             return moves;
         }
 
+        /// <summary>True when the unit has anywhere at all to move.</summary>
+        public static bool CanMove(GameState state, int unitId)
+        {
+            var reach = GetMoveRegion(state, unitId);
+            return reach.Any(r => r > Geometry.PathBackoff);
+        }
+
+        // ---------- attacks ----------
+
         /// <summary>
-        /// Legal attacks for the given unit: enemy units within Chebyshev attack
-        /// range, with line-of-sight required for units whose stats demand it.
-        /// Attacks are legal in both phases (the first attack of a turn switches
-        /// the phase to Attack).
+        /// Legal attacks for the given unit: enemy units within Euclidean attack
+        /// range, with line of sight required for units whose stats demand it.
+        /// Fully enumerable — the target space stays discrete.
         /// </summary>
         public static List<AttackAction> GetLegalAttacks(GameState state, int unitId)
         {
@@ -66,7 +182,7 @@ namespace Tactix.Core
             foreach (var target in state.Units)
             {
                 if (target.Owner == unit.Owner) continue;
-                if (ChebyshevDistance(unit.X, unit.Y, target.X, target.Y) > stats.AttackRange) continue;
+                if (Distance(unit.X, unit.Y, target.X, target.Y) > stats.AttackRange + Geometry.Epsilon) continue;
                 if (stats.RequiresLineOfSight &&
                     !LineOfSight.HasLineOfSight(state, unit.X, unit.Y, target.X, target.Y)) continue;
                 attacks.Add(new AttackAction { UnitId = unitId, TargetUnitId = target.Id });
@@ -74,25 +190,32 @@ namespace Tactix.Core
             return attacks;
         }
 
+        // ---------- action enumeration ----------
+
         /// <summary>
-        /// Every legal action for the current player, including EndTurn (always
-        /// legal while the game is running). This is the action-mask source for
-        /// bots and future ML models.
+        /// Every legal attack plus EndTurn, together with a sample of legal moves
+        /// per movable unit. NOTE: unlike the discrete engine this is not an
+        /// exhaustive enumeration — move targets are continuous. It is a valid
+        /// action set (everything returned is legal), suitable for baseline bots
+        /// and data generation.
         /// </summary>
-        public static List<GameAction> GetAllLegalActions(GameState state)
+        public static List<GameAction> GetAllLegalActions(GameState state, Random rng = null, int movesPerUnit = 8)
         {
             var actions = new List<GameAction>();
             if (state.Winner != null) return actions;
+            rng = rng ?? new Random(0);
 
             foreach (var unit in state.Units)
             {
                 if (unit.Owner != state.CurrentPlayer) continue;
-                actions.AddRange(GetLegalMoves(state, unit.Id));
+                actions.AddRange(SampleLegalMoves(state, unit.Id, movesPerUnit, rng));
                 actions.AddRange(GetLegalAttacks(state, unit.Id));
             }
             actions.Add(new EndTurnAction());
             return actions;
         }
+
+        // ---------- application ----------
 
         /// <summary>
         /// Applies an action, returning the resulting state. The input state is not
@@ -116,9 +239,7 @@ namespace Tactix.Core
 
         private static GameState ApplyMove(GameState state, MoveAction move)
         {
-            bool legal = GetLegalMoves(state, move.UnitId)
-                .Any(m => m.TargetX == move.TargetX && m.TargetY == move.TargetY);
-            if (!legal)
+            if (!IsLegalMoveTarget(state, move.UnitId, move.TargetX, move.TargetY))
                 throw new IllegalActionException($"Illegal move: {move}");
 
             var next = state.Clone();
@@ -143,11 +264,11 @@ namespace Tactix.Core
             var target = next.GetUnit(attack.TargetUnitId);
             attacker.HasAttacked = true;
 
-            int defense = next.TerrainAt(target.X, target.Y) == TerrainType.Forest ? 1 : 0;
-            int highGround = next.ElevationAt(attacker.X, attacker.Y) > next.ElevationAt(target.X, target.Y) ? 1 : 0;
+            int defense = next.TerrainAtPoint(target.X, target.Y) == TerrainType.Forest ? 1 : 0;
+            int highGround = next.ElevationAtPoint(attacker.X, attacker.Y) > next.ElevationAtPoint(target.X, target.Y) ? 1 : 0;
             int damage = Math.Max(0, attacker.Stats.AttackPower + highGround - defense);
             target.Hp -= damage;
-            attacker.Xp += 1; // display-only in schema v2
+            attacker.Xp += 1; // display-only
 
             if (target.Hp <= 0)
             {
@@ -171,42 +292,6 @@ namespace Tactix.Core
                 unit.HasAttacked = false;
             }
             return next;
-        }
-
-        /// <summary>
-        /// Tiles the unit can end a move on: BFS up to move range, 8-connected.
-        /// The unit's own start tile is not a move target.
-        /// </summary>
-        private static IEnumerable<(int x, int y)> ReachableTiles(GameState state, Unit unit)
-        {
-            int range = unit.Stats.MoveRange;
-            var visited = new HashSet<(int, int)> { (unit.X, unit.Y) };
-            var frontier = new Queue<(int x, int y, int dist)>();
-            frontier.Enqueue((unit.X, unit.Y, 0));
-
-            while (frontier.Count > 0)
-            {
-                var (cx, cy, dist) = frontier.Dequeue();
-                if (dist >= range) continue;
-
-                foreach (var (dx, dy) in Directions)
-                {
-                    int nx = cx + dx, ny = cy + dy;
-                    if (!state.IsInBounds(nx, ny) || visited.Contains((nx, ny))) continue;
-                    if (state.TerrainAt(nx, ny) == TerrainType.Impassable) continue;
-                    // Cliffs: a step may climb or descend at most 1 elevation level.
-                    if (Math.Abs(state.ElevationAt(nx, ny) - state.ElevationAt(cx, cy)) > 1) continue;
-
-                    var occupant = state.GetUnitAt(nx, ny);
-                    if (occupant != null && occupant.Owner != unit.Owner) continue; // enemies block pathing
-
-                    visited.Add((nx, ny));
-                    frontier.Enqueue((nx, ny, dist + 1));
-
-                    if (occupant == null) // may pass through friendlies but not stop on them
-                        yield return (nx, ny);
-                }
-            }
         }
     }
 

@@ -24,13 +24,14 @@ namespace Tactix.Core
         [JsonProperty("unitId")]
         public int UnitId { get; set; }
 
+        /// <summary>Destination in world coordinates (continuous).</summary>
         [JsonProperty("targetX")]
-        public int TargetX { get; set; }
+        public double TargetX { get; set; }
 
         [JsonProperty("targetY")]
-        public int TargetY { get; set; }
+        public double TargetY { get; set; }
 
-        public override string ToString() => $"Move(unit {UnitId} -> {TargetX},{TargetY})";
+        public override string ToString() => $"Move(unit {UnitId} -> {TargetX:0.###},{TargetY:0.###})";
     }
 
     public sealed class AttackAction : GameAction

@@ -34,10 +34,28 @@ namespace Tactix.EditorTools
             Debug.Log($"Main scene ready at {ScenePath}");
         }
 
+        /// <summary>
+        /// Window behaviour for the standalone player: a resizable (and therefore
+        /// maximizable) window that starts windowed at 1280x720.
+        /// </summary>
+        [MenuItem("Tactix/Apply Player Settings")]
+        public static void ApplyPlayerSettings()
+        {
+            PlayerSettings.resizableWindow = true;
+            PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
+            PlayerSettings.defaultScreenWidth = 1280;
+            PlayerSettings.defaultScreenHeight = 720;
+            PlayerSettings.defaultIsNativeResolution = false;
+            PlayerSettings.runInBackground = true;
+            PlayerSettings.forceSingleInstance = false;
+            PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64, true);
+        }
+
         [MenuItem("Tactix/Build Windows")]
         public static void BuildWindows()
         {
             CreateMainScene();
+            ApplyPlayerSettings();
             var options = new BuildPlayerOptions
             {
                 scenes = new[] { ScenePath },

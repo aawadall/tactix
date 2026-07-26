@@ -67,9 +67,28 @@ namespace Tactix.Core
         /// <summary>Elevation at a tile; 0 when no elevation layer is present (pre-v3 states).</summary>
         public int ElevationAt(int x, int y) => Elevation != null ? Elevation[y][x] : 0;
 
+        /// <summary>
+        /// Terrain under a world position. Tile indices are clamped, so points
+        /// exactly on the board's outer edge sample the edge tile.
+        /// </summary>
+        public TerrainType TerrainAtPoint(double x, double y) =>
+            TerrainAt(ClampTileX(Geometry.TileIndex(x)), ClampTileY(Geometry.TileIndex(y)));
+
+        /// <summary>Elevation under a world position (tile indices clamped as above).</summary>
+        public int ElevationAtPoint(double x, double y) =>
+            ElevationAt(ClampTileX(Geometry.TileIndex(x)), ClampTileY(Geometry.TileIndex(y)));
+
+        private int ClampTileX(int i) => i < 0 ? 0 : i >= Width ? Width - 1 : i;
+
+        private int ClampTileY(int j) => j < 0 ? 0 : j >= Height ? Height - 1 : j;
+
         public Unit GetUnit(int unitId) => Units.FirstOrDefault(u => u.Id == unitId);
 
-        public Unit GetUnitAt(int x, int y) => Units.FirstOrDefault(u => u.X == x && u.Y == y);
+        /// <summary>The unit whose body covers the given world position, if any.</summary>
+        public Unit GetUnitAtPoint(double x, double y)
+        {
+            return Units.FirstOrDefault(u => Geometry.Distance(u.X, u.Y, x, y) <= u.Stats.Radius);
+        }
 
         public GameState Clone()
         {

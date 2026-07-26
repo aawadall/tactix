@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 
 namespace Tactix.Core.Tests
 {
@@ -38,7 +37,7 @@ namespace Tactix.Core.Tests
             return state;
         }
 
-        public static GameState WithUnit(this GameState state, int id, int owner, UnitType type, int x, int y, int? hp = null)
+        public static GameState WithUnit(this GameState state, int id, int owner, UnitType type, double x, double y, int? hp = null)
         {
             state.Units.Add(new Unit
             {
@@ -52,14 +51,14 @@ namespace Tactix.Core.Tests
             return state;
         }
 
-        public static HashSet<(int x, int y)> MoveTargets(GameState state, int unitId)
-        {
-            return Rules.GetLegalMoves(state, unitId).Select(m => (m.TargetX, m.TargetY)).ToHashSet();
-        }
-
         public static HashSet<int> AttackTargets(GameState state, int unitId)
         {
-            return Rules.GetLegalAttacks(state, unitId).Select(a => a.TargetUnitId).ToHashSet();
+            var targets = new HashSet<int>();
+            foreach (var attack in Rules.GetLegalAttacks(state, unitId)) targets.Add(attack.TargetUnitId);
+            return targets;
         }
+
+        public static MoveAction Move(int unitId, double x, double y) =>
+            new MoveAction { UnitId = unitId, TargetX = x, TargetY = y };
     }
 }

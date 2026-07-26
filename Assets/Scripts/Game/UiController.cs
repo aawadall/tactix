@@ -88,13 +88,16 @@ namespace Tactix.Game
         {
             var s = unit.Stats;
             var sb = new StringBuilder();
-            sb.AppendLine($"{VisualAssets.UnitDisplayName(unit.Type)}  —  Player {unit.Owner + 1} ({PlayerName(unit.Owner)})");
-            sb.AppendLine($"Health {unit.Hp}/{s.MaxHp}    XP {unit.Xp}    Elevation {state.ElevationAt(unit.X, unit.Y)}");
-            sb.AppendLine($"Damage {s.AttackPower}    Range {s.AttackRange}{(s.RequiresLineOfSight ? " (needs LOS)" : "")}    Move {s.MoveRange}    Sight {s.Sight}");
+            sb.AppendLine($"{VisualAssets.UnitDisplayName(unit.Type)}");
+            sb.AppendLine($"Player {unit.Owner + 1} ({PlayerName(unit.Owner)})");
+            sb.AppendLine($"Health {unit.Hp}/{s.MaxHp}    XP {unit.Xp}");
+            sb.AppendLine($"Position ({unit.X:0.0}, {unit.Y:0.0})    Elevation {state.ElevationAtPoint(unit.X, unit.Y)}");
+            sb.AppendLine($"Damage {s.AttackPower}    Range {s.AttackRange:0.#}{(s.RequiresLineOfSight ? " (LOS)" : "")}");
+            sb.AppendLine($"Move {s.MoveRange:0.#}    Sight {s.Sight:0.#}");
 
             var notes = new StringBuilder();
-            if (state.TerrainAt(unit.X, unit.Y) == TerrainType.Forest) notes.Append("In forest: +1 defense.  ");
-            if (state.ElevationAt(unit.X, unit.Y) > 0) notes.Append("High ground: +1 damage vs lower targets.  ");
+            if (state.TerrainAtPoint(unit.X, unit.Y) == TerrainType.Forest) notes.Append("In forest: +1 defense.  ");
+            if (state.ElevationAtPoint(unit.X, unit.Y) > 0) notes.Append("High ground: +1 damage vs lower targets.  ");
             if (unit.Owner == state.CurrentPlayer)
                 notes.Append($"Moved: {(unit.HasMoved ? "yes" : "no")}   Attacked: {(unit.HasAttacked ? "yes" : "no")}");
             sb.Append(notes.Length > 0 ? notes.ToString() : "—");
@@ -163,9 +166,10 @@ namespace Tactix.Game
             rect.anchorMax = new Vector2(0f, 0f);
             rect.pivot = new Vector2(0f, 0f);
             rect.anchoredPosition = new Vector2(12, 12);
-            rect.sizeDelta = new Vector2(430, 118);
+            rect.sizeDelta = new Vector2(300, 190);
 
-            _telemetryText = MakeText(_telemetryPanel.transform, "Body", "", 17, TextAnchor.UpperLeft);
+            _telemetryText = MakeText(_telemetryPanel.transform, "Body", "", 15, TextAnchor.UpperLeft);
+            _telemetryText.horizontalOverflow = HorizontalWrapMode.Wrap; // stay inside the side margin
             var textRect = _telemetryText.rectTransform;
             textRect.anchorMin = Vector2.zero;
             textRect.anchorMax = Vector2.one;
@@ -234,7 +238,7 @@ namespace Tactix.Game
 
                 string los = s.RequiresLineOfSight ? " (needs line of sight)" : "";
                 var row = MakeText(_legendPanel.transform, $"Row {type}",
-                    $"{VisualAssets.UnitDisplayName(type)}\nMove {s.MoveRange}  •  Range {s.AttackRange}{los}  •  Damage {s.AttackPower}  •  HP {s.MaxHp}  •  Sight {s.Sight}",
+                    $"{VisualAssets.UnitDisplayName(type)}\nMove {s.MoveRange:0.#}  •  Range {s.AttackRange:0.#}{los}  •  Damage {s.AttackPower}  •  HP {s.MaxHp}  •  Sight {s.Sight:0.#}",
                     18, TextAnchor.MiddleLeft);
                 Anchor(row.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(60, y), new Vector2(660, 60));
             }
@@ -259,7 +263,7 @@ namespace Tactix.Game
             }
 
             var note = MakeText(_legendPanel.transform, "Note",
-                "Diagonal movement allowed. Move any units, then attack — the first attack ends movement for the whole turn.\nXP: +1 per attack, +2 bonus per kill (no gameplay effect yet).",
+                "Free movement: a unit dashes in a straight line anywhere inside its shaded region (clicks outside it are clamped to the nearest reachable point).\nMove any units, then attack — the first attack ends movement for the whole turn. XP: +1 per attack, +2 bonus per kill (no gameplay effect yet).",
                 16, TextAnchor.MiddleCenter);
             Anchor(note.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, -292), new Vector2(900, 50));
 

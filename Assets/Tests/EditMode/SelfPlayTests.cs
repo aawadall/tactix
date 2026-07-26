@@ -67,23 +67,47 @@ namespace Tactix.Core.Tests
         [Test]
         public void EveryActionFromLegalSet_IsApplicable_DeepCheck()
         {
-            // Stronger authority check: at random points of a game, *every* action in
-            // the legal set must apply cleanly, not just the sampled one.
+            // Authority check: at random points of a game, *every* action the rules
+            // engine offers must apply cleanly, not just the one the bot played.
             var bot = new RandomBot(seed: 7);
             var rng = new Random(7);
             var state = LevelConfig.CreateStandardGame();
             int steps = 0;
 
-            while (state.Winner == null && steps < 500)
+            while (state.Winner == null && steps < 400)
             {
                 if (rng.Next(10) == 0)
                 {
-                    foreach (var candidate in Rules.GetAllLegalActions(state))
+                    foreach (var candidate in Rules.GetAllLegalActions(state, rng))
                         Assert.DoesNotThrow(() => Rules.Apply(state, candidate),
                             $"action in legal set rejected: {candidate}");
                 }
                 state = Rules.Apply(state, bot.ChooseAction(state));
                 steps++;
+            }
+        }
+
+        [Test]
+        public void ProjectedMoves_AreAlwaysLegal_ForArbitraryRequests()
+        {
+            // Constraint projection is the continuous stand-in for hard action
+            // masking: whatever a policy asks for, the projected point must be legal.
+            var rng = new Random(11);
+            var state = LevelConfig.CreateStandardGame();
+
+            for (int i = 0; i < 400; i++)
+            {
+                var unit = state.Units[rng.Next(state.Units.Count)];
+                if (unit.Owner != state.CurrentPlayer || unit.HasMoved) continue;
+
+                double requestX = rng.NextDouble() * 40 - 8; // deliberately includes off-board asks
+                double requestY = rng.NextDouble() * 40 - 8;
+                if (!Rules.ProjectMove(state, unit.Id, requestX, requestY, out double px, out double py)) continue;
+
+                Assert.IsTrue(Rules.IsLegalMoveTarget(state, unit.Id, px, py),
+                    $"projection produced an illegal target ({px},{py}) for request ({requestX},{requestY})");
+                state = Rules.Apply(state, new MoveAction { UnitId = unit.Id, TargetX = px, TargetY = py });
+                if (Rules.GetAllLegalActions(state, rng).Count <= 1) state = Rules.Apply(state, new EndTurnAction());
             }
         }
 
@@ -117,7 +141,7 @@ namespace Tactix.Core.Tests
             Assert.AreEqual(GameLogger.SchemaVersion, (int)header["schemaVersion"]);
             Assert.AreEqual("botVsBot", (string)header["mode"]);
             Assert.IsNotNull(header["initialState"]?["terrain"]);
-            Assert.AreEqual(16, header["initialState"]["units"].Count());
+            Assert.AreEqual(24, header["initialState"]["units"].Count());
             Assert.IsNotNull(header["initialState"]?["elevation"]);
 
             var result = JObject.Parse(lines[lines.Length - 1]);

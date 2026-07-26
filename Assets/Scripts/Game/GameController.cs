@@ -31,6 +31,8 @@ namespace Tactix.Game
         private RandomBot _bot;
         private bool _autoplay;
         private int _autoplayRemaining;
+        private int _framedWidth;
+        private int _framedHeight;
 
         public bool IsHumanTurn =>
             GameStarted && State.Winner == null &&
@@ -94,15 +96,24 @@ namespace Tactix.Game
             cam.backgroundColor = new Color(0.12f, 0.12f, 0.14f);
         }
 
+        // World-unit margins kept clear around the board for the overlay UI.
+        private const float TopMargin = 2.4f;
+        private const float BottomMargin = 1.6f;
+        private const float SideMargin = 0.8f;
+
         private void FrameBoard()
         {
             var cam = Camera.main;
             float cx = (State.Width - 1) / 2f;
             float cy = (State.Height - 1) / 2f;
-            cam.transform.position = new Vector3(cx, cy, -10f);
-            float halfH = State.Height / 2f + 1.2f;
-            float halfW = (State.Width / 2f + 1.2f) / cam.aspect;
-            cam.orthographicSize = Mathf.Max(halfH, halfW);
+
+            float halfHeight = (State.Height + TopMargin + BottomMargin) / 2f;
+            float halfWidth = (State.Width + 2f * SideMargin) / (2f * cam.aspect);
+            cam.orthographicSize = Mathf.Max(halfHeight, halfWidth);
+            cam.transform.position = new Vector3(cx, cy + (TopMargin - BottomMargin) / 2f, -10f);
+
+            _framedWidth = Screen.width;
+            _framedHeight = Screen.height;
         }
 
         public void StartGame(GameMode mode)
@@ -209,7 +220,17 @@ namespace Tactix.Game
 
         private void Update()
         {
+            // Keep the board framed when the window is resized or maximized.
+            if (GameStarted && (Screen.width != _framedWidth || Screen.height != _framedHeight))
+                FrameBoard();
+
             if (Input.GetKeyDown(KeyCode.L)) _ui.ToggleLegend();
+
+            if (Input.GetKeyDown(KeyCode.F11) ||
+                (Input.GetKeyDown(KeyCode.Return) && (Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt))))
+            {
+                Screen.fullScreen = !Screen.fullScreen;
+            }
 
             if (Input.GetKeyDown(KeyCode.Escape))
             {
@@ -231,10 +252,18 @@ namespace Tactix.Game
 
         private IEnumerator ScreenshotSequence(string dir)
         {
-            StartGame(GameMode.BotVsBot);
-            yield return new WaitForSeconds(1.4f);
+            StartGame(GameMode.Hotseat);
+            yield return new WaitForSeconds(0.8f);
             ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "shot_game.png"));
             yield return new WaitForSeconds(0.5f);
+
+            // Select a unit so the reachable region and telemetry are visible.
+            var unit = State.Units.Find(u => u.Owner == 0 && u.Type == Core.UnitType.MechInfantry);
+            if (unit != null) _input.SelectUnit(unit.Id);
+            yield return new WaitForSeconds(0.5f);
+            ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "shot_selection.png"));
+            yield return new WaitForSeconds(0.5f);
+
             _ui.ToggleLegend();
             yield return new WaitForSeconds(0.5f);
             ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "shot_legend.png"));

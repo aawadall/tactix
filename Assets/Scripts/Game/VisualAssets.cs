@@ -16,12 +16,13 @@ namespace Tactix.Game
         public static readonly Color ImpassableColor = new Color(0.26f, 0.26f, 0.30f);
         public static readonly Color Player0Color = new Color(0.22f, 0.45f, 0.92f);
         public static readonly Color Player1Color = new Color(0.90f, 0.30f, 0.24f);
-        public static readonly Color SelectedTint = new Color(1f, 0.92f, 0.25f, 0.55f);
-        public static readonly Color MoveTint = new Color(0.25f, 0.85f, 0.95f, 0.45f);
-        public static readonly Color AttackTint = new Color(1f, 0.15f, 0.10f, 0.50f);
+        public static readonly Color SelectedTint = new Color(1f, 0.92f, 0.25f, 0.95f);
+        public static readonly Color MoveTint = new Color(0.25f, 0.85f, 0.95f, 0.38f);
+        public static readonly Color MoveTintEdge = new Color(0.25f, 0.85f, 0.95f, 0.16f);
+        public static readonly Color AttackTint = new Color(1f, 0.20f, 0.15f, 0.95f);
         public static readonly Color ExhaustedMul = new Color(0.55f, 0.55f, 0.55f);
         public static readonly Color ContourColor = new Color(0.36f, 0.24f, 0.11f);
-        public static readonly Color ElevationDigitColor = new Color(0f, 0f, 0f, 0.55f);
+        public static readonly Color ElevationDigitColor = new Color(0.30f, 0.19f, 0.07f, 0.85f);
 
         /// <summary>Display names used by the legend and telemetry, matching the symbology.</summary>
         public static string UnitDisplayName(UnitType type)
@@ -38,8 +39,51 @@ namespace Tactix.Game
         }
 
         private static Sprite _square;
+        private static Sprite _ring;
+        private static Material _shapeMaterial;
         private static readonly Dictionary<(UnitType, int), Sprite> _symbols =
             new Dictionary<(UnitType, int), Sprite>();
+
+        /// <summary>Unlit transparent material for procedural meshes (move region).</summary>
+        public static Material ShapeMaterial
+        {
+            get
+            {
+                if (_shapeMaterial == null)
+                    _shapeMaterial = new Material(Shader.Find("Sprites/Default"));
+                return _shapeMaterial;
+            }
+        }
+
+        /// <summary>Hollow circle used to mark attackable enemies.</summary>
+        public static Sprite Ring
+        {
+            get
+            {
+                if (_ring == null)
+                {
+                    const int size = 96;
+                    var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+                    var px = new Color32[size * size];
+                    float outer = size / 2f - 1f;
+                    float inner = outer - 6f;
+                    for (int y = 0; y < size; y++)
+                        for (int x = 0; x < size; x++)
+                        {
+                            float dx = x - size / 2f + 0.5f, dy = y - size / 2f + 0.5f;
+                            float d = Mathf.Sqrt(dx * dx + dy * dy);
+                            bool onRing = d <= outer && d >= inner;
+                            px[y * size + x] = onRing
+                                ? new Color32(255, 255, 255, 255)
+                                : new Color32(255, 255, 255, 0);
+                        }
+                    tex.SetPixels32(px);
+                    tex.Apply();
+                    _ring = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), size);
+                }
+                return _ring;
+            }
+        }
 
         public static Sprite Square
         {

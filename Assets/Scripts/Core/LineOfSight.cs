@@ -24,22 +24,26 @@ namespace Tactix.Core
         private const double CanopyHeight = 1.0;
         private const double WallHeight = 3.0;
 
-        public static bool HasLineOfSight(GameState state, int x0, int y0, int x1, int y1)
+        public static bool HasLineOfSight(GameState state, double x0, double y0, double x1, double y1)
         {
-            double h0 = state.ElevationAt(x0, y0) + EyeHeight;
-            double h1 = state.ElevationAt(x1, y1) + EyeHeight;
+            double h0 = state.ElevationAtPoint(x0, y0) + EyeHeight;
+            double h1 = state.ElevationAtPoint(x1, y1) + EyeHeight;
 
-            int minX = Math.Min(x0, x1);
-            int maxX = Math.Max(x0, x1);
-            int minY = Math.Min(y0, y1);
-            int maxY = Math.Max(y0, y1);
+            int originTileX = Geometry.TileIndex(x0), originTileY = Geometry.TileIndex(y0);
+            int targetTileX = Geometry.TileIndex(x1), targetTileY = Geometry.TileIndex(y1);
+
+            int minX = Math.Min(originTileX, targetTileX);
+            int maxX = Math.Max(originTileX, targetTileX);
+            int minY = Math.Min(originTileY, targetTileY);
+            int maxY = Math.Max(originTileY, targetTileY);
 
             for (int ty = minY; ty <= maxY; ty++)
             {
                 for (int tx = minX; tx <= maxX; tx++)
                 {
-                    if (tx == x0 && ty == y0) continue; // attacker tile
-                    if (tx == x1 && ty == y1) continue; // target tile
+                    if (tx == originTileX && ty == originTileY) continue; // attacker's tile
+                    if (tx == targetTileX && ty == targetTileY) continue; // target's tile
+                    if (!state.IsInBounds(tx, ty)) continue;
 
                     double effective = state.ElevationAt(tx, ty);
                     switch (state.TerrainAt(tx, ty))

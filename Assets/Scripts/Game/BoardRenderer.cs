@@ -5,30 +5,36 @@ using UnityEngine;
 namespace Tactix.Game
 {
     /// <summary>
-    /// Renders terrain tiles, selection/move/attack highlights, and units with HP
-    /// labels. Grid coordinates map 1:1 to world XY.
+    /// Draws the continuous board: terrain raster, topographic contour lines
+    /// (marching squares over the elevation field), spot heights on summits,
+    /// the selected unit's reachable region, and units at their world positions.
+    /// Grid coordinates map 1:1 to world XY; tile (i,j) is centred on (i,j).
     /// </summary>
     public sealed class BoardRenderer : MonoBehaviour
     {
         private const float TileZ = 0f;
-        private const float HighlightZ = -0.1f;
+        private const float OverlayZ = -0.1f;
         private const float UnitZ = -0.2f;
         private const float TextZ = -0.3f;
 
-        // Sprite sorting: tiles < contours/elevation digits < highlights < units < labels.
+        // Sprite sorting: terrain < region < contours < units < labels.
         private const int TileOrder = 0;
-        private const int ContourOrder = 1;
-        private const int HighlightOrder = 2;
+        private const int RegionOrder = 1;
+        private const int ContourOrder = 2;
         private const int UnitOrder = 3;
         private const int LabelOrder = 4;
 
-        private readonly List<GameObject> _tiles = new List<GameObject>();
-        private readonly List<GameObject> _highlights = new List<GameObject>();
+        private readonly List<GameObject> _terrain = new List<GameObject>();
+        private readonly List<GameObject> _overlays = new List<GameObject>();
         private readonly List<GameObject> _unitObjects = new List<GameObject>();
+        private GameObject _moveRegion;
+
+        // ---------- terrain, contours, spot heights ----------
 
         public void BuildTerrain(GameState state)
         {
             Clear();
+
             for (int y = 0; y < state.Height; y++)
             {
                 for (int x = 0; x < state.Width; x++)
@@ -40,87 +46,158 @@ namespace Tactix.Game
                         case TerrainType.Impassable: color = VisualAssets.ImpassableColor; break;
                         default: color = VisualAssets.OpenColor; break;
                     }
-                    // Full-size tiles: the terrain reads as one continuous map, so
-                    // contour lines are the dominant linework.
-                    var tile = MakeSprite($"Tile {x},{y}", VisualAssets.Square, color,
-                        new Vector3(x, y, TileZ), Vector3.one, TileOrder);
-                    _tiles.Add(tile);
-
-                    int elev = state.ElevationAt(x, y);
-                    if (elev > 0) _tiles.Add(MakeElevationDigit(x, y, elev));
+                    _terrain.Add(MakeSprite($"Tile {x},{y}", VisualAssets.Square, color,
+                        new Vector3(x, y, TileZ), Vector3.one, 0f, TileOrder));
                 }
             }
-            BuildGridLines(state);
-            BuildContourLines(state);
-        }
 
-        /// <summary>A faint reference grid so tile boundaries stay readable.</summary>
-        private void BuildGridLines(GameState state)
-        {
-            var color = new Color(0f, 0f, 0f, 0.14f);
-            float cx = (state.Width - 1) / 2f;
-            float cy = (state.Height - 1) / 2f;
-            for (int x = 0; x <= state.Width; x++)
-                _tiles.Add(MakeSprite($"GridV {x}", VisualAssets.Square, color,
-                    new Vector3(x - 0.5f, cy, HighlightZ), new Vector3(0.02f, state.Height, 1f), TileOrder));
-            for (int y = 0; y <= state.Height; y++)
-                _tiles.Add(MakeSprite($"GridH {y}", VisualAssets.Square, color,
-                    new Vector3(cx, y - 0.5f, HighlightZ), new Vector3(state.Width, 0.02f, 1f), TileOrder));
+            BuildContours(state);
+            BuildSpotHeights(state);
         }
 
         /// <summary>
-        /// Topographic contour lines: a segment along every tile edge where the
-        /// elevation changes, drawn thicker where the step is 2+ (a cliff).
+        /// Marching squares over the elevation field: for each half-level
+        /// threshold, emit the isoline crossing each cell of tile centres. This
+        /// produces the diagonal, organically shaped contours of a topographic
+        /// map rather than tile-edge staircases. Contours are drawn heavier
+        /// where the relief steps by 2 or more (a cliff, impassable to movement).
         /// </summary>
-        private void BuildContourLines(GameState state)
+        private void BuildContours(GameState state)
         {
+            int maxElevation = 0;
+            for (int y = 0; y < state.Height; y++)
+                for (int x = 0; x < state.Width; x++)
+                    maxElevation = Mathf.Max(maxElevation, state.ElevationAt(x, y));
+
+            for (int level = 1; level <= maxElevation; level++)
+            {
+                float threshold = level - 0.5f;
+                for (int y = 0; y < state.Height - 1; y++)
+                {
+                    for (int x = 0; x < state.Width - 1; x++)
+                    {
+                        float bl = state.ElevationAt(x, y);
+                        float br = state.ElevationAt(x + 1, y);
+                        float tr = state.ElevationAt(x + 1, y + 1);
+                        float tl = state.ElevationAt(x, y + 1);
+
+                        int index = 0;
+                        if (bl >= threshold) index |= 1;
+                        if (br >= threshold) index |= 2;
+                        if (tr >= threshold) index |= 4;
+                        if (tl >= threshold) index |= 8;
+                        if (index == 0 || index == 15) continue;
+
+                        var bottom = new Vector2(x + Cross(bl, br, threshold), y);
+                        var right = new Vector2(x + 1, y + Cross(br, tr, threshold));
+                        var top = new Vector2(x + Cross(tl, tr, threshold), y + 1);
+                        var left = new Vector2(x, y + Cross(bl, tl, threshold));
+
+                        float span = Mathf.Max(Mathf.Max(bl, br), Mathf.Max(tr, tl))
+                                   - Mathf.Min(Mathf.Min(bl, br), Mathf.Min(tr, tl));
+                        bool cliff = span >= 2f;
+
+                        switch (index)
+                        {
+                            case 1: case 14: AddContour(left, bottom, cliff); break;
+                            case 2: case 13: AddContour(bottom, right, cliff); break;
+                            case 3: case 12: AddContour(left, right, cliff); break;
+                            case 4: case 11: AddContour(right, top, cliff); break;
+                            case 6: case 9: AddContour(bottom, top, cliff); break;
+                            case 7: case 8: AddContour(left, top, cliff); break;
+                            case 5: // saddle
+                                AddContour(left, bottom, cliff);
+                                AddContour(right, top, cliff);
+                                break;
+                            case 10: // saddle
+                                AddContour(left, top, cliff);
+                                AddContour(bottom, right, cliff);
+                                break;
+                        }
+                    }
+                }
+            }
+        }
+
+        private static float Cross(float a, float b, float threshold)
+        {
+            float d = b - a;
+            return Mathf.Abs(d) < 1e-6f ? 0.5f : Mathf.Clamp01((threshold - a) / d);
+        }
+
+        private void AddContour(Vector2 from, Vector2 to, bool cliff)
+        {
+            Vector2 delta = to - from;
+            float length = delta.magnitude;
+            if (length < 1e-4f) return;
+
+            Vector2 mid = (from + to) * 0.5f;
+            float angle = Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg;
+            float thickness = cliff ? 0.13f : 0.055f;
+
+            _terrain.Add(MakeSprite("Contour", VisualAssets.Square, VisualAssets.ContourColor,
+                new Vector3(mid.x, mid.y, OverlayZ), new Vector3(length + thickness * 0.5f, thickness, 1f),
+                angle, ContourOrder));
+        }
+
+        /// <summary>
+        /// Spot heights: one label per summit region, the way a topo map marks
+        /// hilltops, rather than a digit on every raised tile.
+        /// </summary>
+        private void BuildSpotHeights(GameState state)
+        {
+            var visited = new bool[state.Width, state.Height];
             for (int y = 0; y < state.Height; y++)
             {
                 for (int x = 0; x < state.Width; x++)
                 {
-                    int here = state.ElevationAt(x, y);
-                    if (x + 1 < state.Width)
+                    if (visited[x, y]) continue;
+                    int elevation = state.ElevationAt(x, y);
+                    if (elevation <= 0 || !IsSummitTile(state, x, y)) continue;
+
+                    // Flood the connected summit plateau and label its centre.
+                    var region = new List<Vector2Int>();
+                    var queue = new Queue<Vector2Int>();
+                    queue.Enqueue(new Vector2Int(x, y));
+                    visited[x, y] = true;
+                    while (queue.Count > 0)
                     {
-                        int diff = Mathf.Abs(state.ElevationAt(x + 1, y) - here);
-                        if (diff > 0) AddContourSegment(x + 0.5f, y, vertical: true, cliff: diff >= 2);
+                        var cell = queue.Dequeue();
+                        region.Add(cell);
+                        for (int dx = -1; dx <= 1; dx++)
+                            for (int dy = -1; dy <= 1; dy++)
+                            {
+                                int nx = cell.x + dx, ny = cell.y + dy;
+                                if (!state.IsInBounds(nx, ny) || visited[nx, ny]) continue;
+                                if (state.ElevationAt(nx, ny) != elevation || !IsSummitTile(state, nx, ny)) continue;
+                                visited[nx, ny] = true;
+                                queue.Enqueue(new Vector2Int(nx, ny));
+                            }
                     }
-                    if (y + 1 < state.Height)
-                    {
-                        int diff = Mathf.Abs(state.ElevationAt(x, y + 1) - here);
-                        if (diff > 0) AddContourSegment(x, y + 0.5f, vertical: false, cliff: diff >= 2);
-                    }
+
+                    Vector2 centre = Vector2.zero;
+                    foreach (var cell in region) centre += new Vector2(cell.x, cell.y);
+                    centre /= region.Count;
+                    _terrain.Add(MakeLabel(elevation.ToString(), new Vector3(centre.x, centre.y, OverlayZ),
+                        VisualAssets.ElevationDigitColor, 0.075f, ContourOrder));
                 }
             }
         }
 
-        private void AddContourSegment(float x, float y, bool vertical, bool cliff)
+        private static bool IsSummitTile(GameState state, int x, int y)
         {
-            float thickness = cliff ? 0.20f : 0.09f;
-            var scale = vertical
-                ? new Vector3(thickness, 1.02f, 1f)
-                : new Vector3(1.02f, thickness, 1f);
-            _tiles.Add(MakeSprite($"Contour {x},{y}", VisualAssets.Square, VisualAssets.ContourColor,
-                new Vector3(x, y, HighlightZ), scale, ContourOrder));
+            int elevation = state.ElevationAt(x, y);
+            for (int dx = -1; dx <= 1; dx++)
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    int nx = x + dx, ny = y + dy;
+                    if (!state.IsInBounds(nx, ny)) continue;
+                    if (state.ElevationAt(nx, ny) > elevation) return false;
+                }
+            return true;
         }
 
-        private GameObject MakeElevationDigit(int x, int y, int elev)
-        {
-            var go = new GameObject($"Elev {x},{y}");
-            go.transform.SetParent(transform, false);
-            go.transform.position = new Vector3(x - 0.30f, y + 0.30f, HighlightZ);
-            var text = go.AddComponent<TextMesh>();
-            text.text = elev.ToString();
-            text.font = VisualAssets.UiFont;
-            text.fontSize = 48;
-            text.characterSize = 0.052f;
-            text.anchor = TextAnchor.MiddleCenter;
-            text.alignment = TextAlignment.Center;
-            text.color = VisualAssets.ElevationDigitColor;
-            var renderer = go.GetComponent<MeshRenderer>();
-            renderer.sharedMaterial = VisualAssets.UiFont.material;
-            renderer.sortingOrder = ContourOrder;
-            return go;
-        }
+        // ---------- units ----------
 
         public void RenderUnits(GameState state)
         {
@@ -134,43 +211,88 @@ namespace Tactix.Game
 
                 var sprite = VisualAssets.UnitSymbol(unit.Type, unit.Owner);
                 var go = MakeSprite($"Unit {unit.Id}", sprite, tint,
-                    new Vector3(unit.X, unit.Y - 0.06f, UnitZ), Vector3.one, UnitOrder);
+                    new Vector3((float)unit.X, (float)unit.Y - 0.06f, UnitZ), Vector3.one, 0f, UnitOrder);
 
-                var textGo = new GameObject("Hp");
-                textGo.transform.SetParent(go.transform, false);
-                textGo.transform.localPosition = new Vector3(0.33f, -0.20f, TextZ - UnitZ);
-                var text = textGo.AddComponent<TextMesh>();
-                text.text = unit.Hp.ToString();
-                text.font = VisualAssets.UiFont;
-                text.fontSize = 48;
-                text.characterSize = 0.075f;
-                text.anchor = TextAnchor.MiddleCenter;
-                text.alignment = TextAlignment.Center;
-                text.color = Color.white;
-                var textRenderer = textGo.GetComponent<MeshRenderer>();
-                textRenderer.sharedMaterial = VisualAssets.UiFont.material;
-                textRenderer.sortingOrder = LabelOrder;
+                var label = MakeLabel(unit.Hp.ToString(), new Vector3(0.33f, -0.20f, TextZ - UnitZ),
+                    Color.white, 0.075f, LabelOrder);
+                label.transform.SetParent(go.transform, false);
 
                 _unitObjects.Add(go);
             }
         }
 
-        public void SetHighlights(
-            (int x, int y)? selected,
-            IEnumerable<(int x, int y)> moveTargets,
-            IEnumerable<(int x, int y)> attackTargets)
+        // ---------- selection overlays ----------
+
+        /// <summary>Draws the star-shaped region the selected unit can dash to.</summary>
+        public void SetMoveRegion(Unit unit, double[] reach)
         {
-            ClearHighlights();
-            if (selected.HasValue)
-                AddHighlight(selected.Value.x, selected.Value.y, VisualAssets.SelectedTint);
-            foreach (var (x, y) in moveTargets) AddHighlight(x, y, VisualAssets.MoveTint);
-            foreach (var (x, y) in attackTargets) AddHighlight(x, y, VisualAssets.AttackTint);
+            ClearMoveRegion();
+            if (unit == null || reach == null || reach.Length < 3) return;
+
+            var vertices = new Vector3[reach.Length + 1];
+            var colors = new Color[vertices.Length];
+            var triangles = new int[reach.Length * 3];
+
+            vertices[0] = Vector3.zero;
+            colors[0] = VisualAssets.MoveTint;
+            for (int i = 0; i < reach.Length; i++)
+            {
+                float angle = 2f * Mathf.PI * i / reach.Length;
+                vertices[i + 1] = new Vector3(Mathf.Cos(angle) * (float)reach[i], Mathf.Sin(angle) * (float)reach[i], 0f);
+                colors[i + 1] = VisualAssets.MoveTintEdge;
+
+                int next = (i + 1) % reach.Length;
+                triangles[i * 3] = 0;
+                triangles[i * 3 + 1] = i + 1;
+                triangles[i * 3 + 2] = next + 1;
+            }
+
+            var mesh = new Mesh { vertices = vertices, colors = colors, triangles = triangles };
+            mesh.RecalculateBounds();
+
+            _moveRegion = new GameObject("MoveRegion");
+            _moveRegion.transform.SetParent(transform, false);
+            _moveRegion.transform.position = new Vector3((float)unit.X, (float)unit.Y, OverlayZ);
+            _moveRegion.AddComponent<MeshFilter>().mesh = mesh;
+            var renderer = _moveRegion.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = VisualAssets.ShapeMaterial;
+            renderer.sortingOrder = RegionOrder;
+        }
+
+        public void SetSelection(Unit selected, IEnumerable<Unit> attackTargets)
+        {
+            ClearOverlays();
+            if (selected != null)
+            {
+                _overlays.Add(MakeSprite("Selected", VisualAssets.Ring, VisualAssets.SelectedTint,
+                    new Vector3((float)selected.X, (float)selected.Y, OverlayZ),
+                    Vector3.one * (float)(selected.Stats.Radius * 2.6), 0f, ContourOrder));
+            }
+            if (attackTargets == null) return;
+            foreach (var target in attackTargets)
+            {
+                _overlays.Add(MakeSprite($"Target {target.Id}", VisualAssets.Ring, VisualAssets.AttackTint,
+                    new Vector3((float)target.X, (float)target.Y, OverlayZ),
+                    Vector3.one * (float)(target.Stats.Radius * 3.0), 0f, ContourOrder));
+            }
         }
 
         public void ClearHighlights()
         {
-            foreach (var go in _highlights) Destroy(go);
-            _highlights.Clear();
+            ClearOverlays();
+            ClearMoveRegion();
+        }
+
+        private void ClearOverlays()
+        {
+            foreach (var go in _overlays) Destroy(go);
+            _overlays.Clear();
+        }
+
+        private void ClearMoveRegion()
+        {
+            if (_moveRegion != null) Destroy(_moveRegion);
+            _moveRegion = null;
         }
 
         public void Clear()
@@ -178,26 +300,41 @@ namespace Tactix.Game
             ClearHighlights();
             foreach (var go in _unitObjects) Destroy(go);
             _unitObjects.Clear();
-            foreach (var go in _tiles) Destroy(go);
-            _tiles.Clear();
+            foreach (var go in _terrain) Destroy(go);
+            _terrain.Clear();
         }
 
-        private void AddHighlight(int x, int y, Color color)
-        {
-            var go = MakeSprite($"Highlight {x},{y}", VisualAssets.Square, color,
-                new Vector3(x, y, HighlightZ), new Vector3(0.95f, 0.95f, 1f), HighlightOrder);
-            _highlights.Add(go);
-        }
+        // ---------- primitives ----------
 
-        private GameObject MakeSprite(string name, Sprite sprite, Color color, Vector3 pos, Vector3 scale, int sortingOrder)
+        private GameObject MakeSprite(string name, Sprite sprite, Color color, Vector3 pos, Vector3 scale, float angle, int sortingOrder)
         {
             var go = new GameObject(name);
             go.transform.SetParent(transform, false);
             go.transform.position = pos;
             go.transform.localScale = scale;
+            if (Mathf.Abs(angle) > 1e-4f) go.transform.rotation = Quaternion.Euler(0f, 0f, angle);
             var renderer = go.AddComponent<SpriteRenderer>();
             renderer.sprite = sprite;
             renderer.color = color;
+            renderer.sortingOrder = sortingOrder;
+            return go;
+        }
+
+        private GameObject MakeLabel(string text, Vector3 localPos, Color color, float size, int sortingOrder)
+        {
+            var go = new GameObject("Label");
+            go.transform.SetParent(transform, false);
+            go.transform.localPosition = localPos;
+            var mesh = go.AddComponent<TextMesh>();
+            mesh.text = text;
+            mesh.font = VisualAssets.UiFont;
+            mesh.fontSize = 48;
+            mesh.characterSize = size;
+            mesh.anchor = TextAnchor.MiddleCenter;
+            mesh.alignment = TextAlignment.Center;
+            mesh.color = color;
+            var renderer = go.GetComponent<MeshRenderer>();
+            renderer.sharedMaterial = VisualAssets.UiFont.material;
             renderer.sortingOrder = sortingOrder;
             return go;
         }

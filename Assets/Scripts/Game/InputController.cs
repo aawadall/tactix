@@ -7,16 +7,17 @@ using UnityEngine.EventSystems;
 namespace Tactix.Game
 {
     /// <summary>
-    /// Mouse interaction: click a friendly unit to select it, click a highlighted
-    /// tile to move, click a highlighted enemy to attack. Highlights always come
-    /// from the Rules legal-action functions, so nothing illegal is clickable.
+    /// Mouse interaction in continuous space: click a friendly unit to select it,
+    /// click anywhere in the shaded region to dash there, click a ringed enemy to
+    /// attack. A click outside the reachable region is projected onto it (the
+    /// same clamp a continuous policy's raw output would get), so the unit moves
+    /// as far along that heading as the rules allow.
     /// </summary>
     public sealed class InputController : MonoBehaviour
     {
         private GameController _game;
         private BoardRenderer _board;
         private int? _selectedUnitId;
-        private List<MoveAction> _legalMoves = new List<MoveAction>();
         private List<AttackAction> _legalAttacks = new List<AttackAction>();
 
         public void Init(GameController game, BoardRenderer board)
@@ -43,49 +44,48 @@ namespace Tactix.Game
             if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject()) return;
 
             var world = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-            int x = Mathf.RoundToInt(world.x);
-            int y = Mathf.RoundToInt(world.y);
+            double x = world.x, y = world.y;
             var state = _game.State;
+            var clickedUnit = state.GetUnitAtPoint(x, y);
 
-            if (!state.IsInBounds(x, y))
-            {
-                ClearSelection();
-                return;
-            }
-
-            var clickedUnit = state.GetUnitAt(x, y);
-
-            // Attack if the clicked enemy is a legal target of the selection.
+            // Attack a ringed enemy.
             if (_selectedUnitId.HasValue && clickedUnit != null && clickedUnit.Owner != state.CurrentPlayer)
             {
                 var attack = _legalAttacks.FirstOrDefault(a => a.TargetUnitId == clickedUnit.Id);
                 if (attack != null && _game.TrySubmitAction(attack))
                 {
-                    RefreshSelection(); // keep unit selected so its attack options update
+                    RefreshSelection();
                     return;
                 }
             }
 
-            // Move if the clicked tile is a legal destination of the selection.
-            if (_selectedUnitId.HasValue && clickedUnit == null)
-            {
-                var move = _legalMoves.FirstOrDefault(m => m.TargetX == x && m.TargetY == y);
-                if (move != null && _game.TrySubmitAction(move))
-                {
-                    RefreshSelection(); // unit may attack after moving
-                    return;
-                }
-            }
-
-            // (Re)select a friendly unit, inspect an enemy, or deselect on empty ground.
+            // Select or re-select a friendly unit.
             if (clickedUnit != null && clickedUnit.Owner == state.CurrentPlayer)
             {
                 _selectedUnitId = clickedUnit.Id;
                 RefreshSelection();
+                return;
             }
-            else if (clickedUnit != null)
+
+            // Move: exact target if legal, otherwise the projection of the request.
+            if (_selectedUnitId.HasValue && clickedUnit == null)
             {
-                // Enemy that isn't an attack target: show its telemetry only.
+                int unitId = _selectedUnitId.Value;
+                if (Rules.ProjectMove(state, unitId, x, y, out double targetX, out double targetY))
+                {
+                    var move = new MoveAction { UnitId = unitId, TargetX = targetX, TargetY = targetY };
+                    if (_game.TrySubmitAction(move))
+                    {
+                        RefreshSelection(); // the unit may still attack after moving
+                        return;
+                    }
+                }
+                return; // keep the selection so the player can try another point
+            }
+
+            if (clickedUnit != null)
+            {
+                // An enemy that isn't a legal target: just inspect it.
                 ClearSelection();
                 _game.Ui.ShowTelemetry(clickedUnit, state);
             }
@@ -95,10 +95,16 @@ namespace Tactix.Game
             }
         }
 
+        /// <summary>Selects a unit programmatically (used by the -shots capture mode).</summary>
+        public void SelectUnit(int unitId)
+        {
+            _selectedUnitId = unitId;
+            RefreshSelection();
+        }
+
         public void ClearSelection()
         {
             _selectedUnitId = null;
-            _legalMoves.Clear();
             _legalAttacks.Clear();
             if (_board != null) _board.ClearHighlights();
             if (_game != null && _game.Ui != null) _game.Ui.HideTelemetry();
@@ -108,25 +114,20 @@ namespace Tactix.Game
         {
             var state = _game.State;
             var unit = _selectedUnitId.HasValue ? state?.GetUnit(_selectedUnitId.Value) : null;
-            if (unit == null) // died or game ended
+            if (unit == null) // died, or the game ended
             {
                 ClearSelection();
                 return;
             }
 
-            _legalMoves = Rules.GetLegalMoves(state, unit.Id);
             _legalAttacks = Rules.GetLegalAttacks(state, unit.Id);
-            _game.Ui.ShowTelemetry(unit, state);
-
-            var attackTiles = _legalAttacks
+            var targets = _legalAttacks
                 .Select(a => state.GetUnit(a.TargetUnitId))
-                .Where(t => t != null)
-                .Select(t => (t.X, t.Y));
+                .Where(t => t != null);
 
-            _board.SetHighlights(
-                (unit.X, unit.Y),
-                _legalMoves.Select(m => (m.TargetX, m.TargetY)),
-                attackTiles);
+            _board.SetMoveRegion(unit, Rules.GetMoveRegion(state, unit.Id));
+            _board.SetSelection(unit, targets);
+            _game.Ui.ShowTelemetry(unit, state);
         }
     }
 }
