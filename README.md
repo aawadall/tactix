@@ -26,6 +26,13 @@ Run tests (rules unit tests + full random self-play with log validation):
 Unity.exe -batchmode -projectPath . -runTests -testPlatform EditMode -testResults TestResults/editmode.xml
 ```
 
+Headless self-play data generation (runs N bot-vs-bot games, writes one JSONL
+file each to `logs/` next to the exe, then quits):
+
+```
+Builds\Windows\Tactix.exe -batchmode -nographics -autoplay 100
+```
+
 In game: click a friendly unit to select it (cyan = legal moves, red = legal
 attack targets, both computed by the rules engine), click a highlighted tile to
 move or a highlighted enemy to attack, End Turn button to pass. Right-click

@@ -29,7 +29,8 @@ namespace Tactix.Game
         private UiController _ui;
         private GameLogger _logger;
         private RandomBot _bot;
-        private Coroutine _botLoop;
+        private bool _autoplay;
+        private int _autoplayRemaining;
 
         public bool IsHumanTurn =>
             GameStarted && State.Winner == null &&
@@ -49,7 +50,25 @@ namespace Tactix.Game
 
         private void Start()
         {
-            _ui.ShowModeSelect();
+            StartCoroutine(BotLoop()); // one persistent loop for the whole session
+
+            // "Tactix.exe -autoplay [N]" runs N bot-vs-bot games unattended (for
+            // self-play data generation, works with -batchmode -nographics) and quits.
+            var args = System.Environment.GetCommandLineArgs();
+            int autoplayIndex = System.Array.IndexOf(args, "-autoplay");
+            if (autoplayIndex >= 0)
+            {
+                _autoplay = true;
+                _autoplayRemaining = 1;
+                if (autoplayIndex + 1 < args.Length && int.TryParse(args[autoplayIndex + 1], out int games) && games > 0)
+                    _autoplayRemaining = games;
+                Debug.Log($"Autoplay: running {_autoplayRemaining} bot-vs-bot game(s), logging to {LogDirectory}");
+                StartGame(GameMode.BotVsBot);
+            }
+            else
+            {
+                _ui.ShowModeSelect();
+            }
         }
 
         private static void CreateCamera()
@@ -86,19 +105,11 @@ namespace Tactix.Game
             _input.ClearSelection();
             RefreshViews();
             _ui.HidePanels();
-
-            if (_botLoop != null) StopCoroutine(_botLoop);
-            _botLoop = StartCoroutine(BotLoop());
         }
 
         public void BackToMenu()
         {
             EndLoggerIfOpen();
-            if (_botLoop != null)
-            {
-                StopCoroutine(_botLoop);
-                _botLoop = null;
-            }
             State = null;
             _input.ClearSelection();
             _board.Clear();
@@ -130,6 +141,20 @@ namespace Tactix.Game
                 EndLoggerIfOpen();
                 _input.ClearSelection();
                 _ui.ShowWinScreen(State.Winner.Value);
+
+                if (_autoplay)
+                {
+                    _autoplayRemaining--;
+                    if (_autoplayRemaining > 0)
+                    {
+                        StartGame(GameMode.BotVsBot);
+                    }
+                    else
+                    {
+                        Debug.Log("Autoplay finished, quitting");
+                        Application.Quit();
+                    }
+                }
             }
 
             RefreshViews();
@@ -151,18 +176,21 @@ namespace Tactix.Game
         private IEnumerator BotLoop()
         {
             var delay = new WaitForSeconds(BotActionDelay);
-            while (GameStarted && State.Winner == null)
+            while (true)
             {
-                if (!IsHumanTurn)
-                {
-                    yield return delay;
-                    if (!GameStarted || State.Winner != null || IsHumanTurn) continue;
-                    TrySubmitAction(_bot.ChooseAction(State));
-                }
-                else
+                bool botTurn = GameStarted && State.Winner == null && !IsHumanTurn;
+                if (!botTurn)
                 {
                     yield return null;
+                    continue;
                 }
+
+                // Autoplay runs at full speed; interactive bot turns are paced to be watchable.
+                if (_autoplay) yield return null;
+                else yield return delay;
+
+                if (GameStarted && State.Winner == null && !IsHumanTurn)
+                    TrySubmitAction(_bot.ChooseAction(State));
             }
         }
 
