@@ -15,5 +15,12 @@ namespace Tactix.Core
         Medic = 5,
         /// <summary>Maintenance/service company: repairs vehicles, unarmed.</summary>
         Service = 6,
+        /// <summary>
+        /// A formation of mixed branches, produced by amalgamating units of
+        /// different types. Its profile is a blend rather than a record of what
+        /// went into it — provenance is deliberately not tracked, so that a
+        /// unit's stats stay a pure function of its type and echelon.
+        /// </summary>
+        CombinedArms = 7,
     }
 }

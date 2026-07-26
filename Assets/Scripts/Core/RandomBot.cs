@@ -21,6 +21,14 @@ namespace Tactix.Core
         private const int MoveSamplesPerUnit = 12;
         private const double AttackProbability = 0.9;
 
+        /// <summary>
+        /// How often the bot reorganises rather than manoeuvring. Kept low: merging
+        /// and splitting are interesting but a bot that does nothing else never
+        /// closes with the enemy. Non-zero so self-play exercises both actions and
+        /// they appear in the training data.
+        /// </summary>
+        private const double ReorganiseProbability = 0.08;
+
         private readonly Random _rng;
 
         /// <summary>0 = pure uniform random, 1 = always advance on the nearest enemy.</summary>
@@ -71,6 +79,14 @@ namespace Tactix.Core
                 .OrderBy(_ => _rng.Next())
                 .ToList();
 
+            // Occasionally reorganise instead of manoeuvring, so amalgamation and
+            // detachment appear in self-play logs.
+            if (_rng.NextDouble() < ReorganiseProbability)
+            {
+                var reorganisation = ChooseReorganisation(state, movable);
+                if (reorganisation != null) return reorganisation;
+            }
+
             foreach (var unit in movable)
             {
                 var samples = Rules.SampleLegalMoves(state, unit.Id, MoveSamplesPerUnit, _rng);
@@ -81,6 +97,21 @@ namespace Tactix.Core
             }
 
             return attacks.Count > 0 ? attacks[_rng.Next(attacks.Count)] : (GameAction)new EndTurnAction();
+        }
+
+        /// <summary>
+        /// Picks a merge or a split, if either is available. Both come straight
+        /// from the rules engine, so anything returned is legal.
+        /// </summary>
+        private GameAction ChooseReorganisation(GameState state, List<Unit> movable)
+        {
+            var merges = movable.SelectMany(u => Rules.GetLegalMerges(state, u.Id)).ToList();
+            var splits = movable.SelectMany(u => Rules.SampleLegalSplits(state, u.Id, 3, _rng)).ToList();
+
+            bool preferMerge = merges.Count > 0 && (splits.Count == 0 || _rng.NextDouble() < 0.5);
+            if (preferMerge) return merges[_rng.Next(merges.Count)];
+            if (splits.Count > 0) return splits[_rng.Next(splits.Count)];
+            return null;
         }
 
         private static MoveAction BestAdvance(GameState state, Unit unit, List<MoveAction> samples)

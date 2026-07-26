@@ -37,6 +37,7 @@ namespace Tactix.Game
                 case UnitType.Recon: return "Recon";
                 case UnitType.Medic: return "Medical";
                 case UnitType.Service: return "Service";
+                case UnitType.CombinedArms: return "Combined Arms";
                 default: return type.ToString();
             }
         }
@@ -160,6 +161,12 @@ namespace Tactix.Game
                     // Medical: upright Geneva cross.
                     FillRect(px, w, 53, 21, 67, 57, white);
                     FillRect(px, w, 42, 32, 78, 46, white);
+                    break;
+                case UnitType.CombinedArms:
+                    // Combined arms: the infantry cross inside an armour oval.
+                    DrawEllipseOutline(px, w, h, 60, 39, 34, 19, 3, white);
+                    DrawThickLine(px, w, h, 30, 22, 90, 56, 3, white);
+                    DrawThickLine(px, w, h, 30, 56, 90, 22, 3, white);
                     break;
                 case UnitType.Service:
                     // Maintenance: open-ended wrench.

@@ -220,6 +220,169 @@ namespace Tactix.Core
             return heals;
         }
 
+        // ---------- amalgamation and detachment ----------
+
+        /// <summary>How close two formations must be before they can combine.</summary>
+        public const double MergeContactBuffer = 0.5;
+
+        /// <summary>How far beyond touching a detachment may form up.</summary>
+        public const double SplitFormUpBuffer = 1.0;
+
+        /// <summary>
+        /// Legal amalgamations for this unit: friendly formations of the same
+        /// size, standing within contact, where the combined formation fits.
+        /// Both units spend their move, so neither may have moved already.
+        /// Enumerable — merge targets are discrete units.
+        /// </summary>
+        public static List<MergeAction> GetLegalMerges(GameState state, int unitId)
+        {
+            var merges = new List<MergeAction>();
+            var unit = state.GetUnit(unitId);
+            if (unit == null || state.Winner != null) return merges;
+            if (unit.Owner != state.CurrentPlayer || unit.HasMoved) return merges;
+            if (state.TurnPhase != TurnPhase.Move) return merges;
+            if (EchelonScale.Larger(unit.Echelon) == null) return merges; // already at the top
+
+            foreach (var other in state.Units)
+            {
+                if (other.Id == unit.Id || other.Owner != unit.Owner) continue;
+                if (other.Echelon != unit.Echelon || other.HasMoved) continue;
+
+                double contact = unit.Stats.Radius + other.Stats.Radius + MergeContactBuffer;
+                if (Distance(unit.X, unit.Y, other.X, other.Y) > contact) continue;
+                if (!TryPlanMerge(state, unit, other, out _, out _, out _, out _)) continue;
+
+                merges.Add(new MergeAction { UnitId = unit.Id, AbsorbedUnitId = other.Id });
+            }
+            return merges;
+        }
+
+        /// <summary>
+        /// Works out what a merge would produce and whether the result fits on the
+        /// board. Same branch keeps that branch; unlike branches produce a
+        /// combined-arms formation.
+        /// </summary>
+        private static bool TryPlanMerge(GameState state, Unit unit, Unit other,
+            out UnitType type, out Echelon echelon, out double x, out double y)
+        {
+            type = unit.Type == other.Type ? unit.Type : UnitType.CombinedArms;
+            echelon = EchelonScale.Larger(unit.Echelon) ?? unit.Echelon;
+            x = 0;
+            y = 0;
+
+            double radius = UnitStats.For(type, echelon).Radius;
+            // Prefer forming up between the two; fall back to either's ground.
+            var candidates = new[]
+            {
+                ((unit.X + other.X) / 2, (unit.Y + other.Y) / 2),
+                (unit.X, unit.Y),
+                (other.X, other.Y),
+            };
+
+            foreach (var (cx, cy) in candidates)
+            {
+                if (!Geometry.IsInsideBoard(state, cx, cy)) continue;
+                if (state.TerrainAtPoint(cx, cy) == TerrainType.Impassable) continue;
+                if (!IsClearOfUnitsExcept(state, cx, cy, radius, unit.Id, other.Id)) continue;
+                x = cx;
+                y = cy;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The region a detachment may form up in: the same ray-cast description
+        /// used for movement, bounded by how far a detaching formation can go.
+        /// Empty when the unit cannot split.
+        /// </summary>
+        public static double[] GetSplitRegion(GameState state, int unitId, int rayCount = MoveRegionRays)
+        {
+            var unit = state.GetUnit(unitId);
+            if (!CanSplit(state, unit)) return Array.Empty<double>();
+
+            var child = UnitStats.For(unit.Type, EchelonScale.Smaller(unit.Echelon).Value);
+            double range = unit.Stats.Radius + child.Radius + SplitFormUpBuffer;
+
+            var reach = new double[rayCount];
+            for (int i = 0; i < rayCount; i++)
+            {
+                double angle = 2.0 * Math.PI * i / rayCount;
+                Geometry.RayDistance(state, unit.X, unit.Y, Math.Cos(angle), Math.Sin(angle),
+                    range, out double reachable);
+                reach[i] = reachable;
+            }
+            return reach;
+        }
+
+        /// <summary>Authoritative predicate for where a detachment may form up.</summary>
+        public static bool IsLegalSplitTarget(GameState state, int unitId, double targetX, double targetY)
+        {
+            var unit = state.GetUnit(unitId);
+            if (!CanSplit(state, unit)) return false;
+            if (double.IsNaN(targetX) || double.IsNaN(targetY)) return false;
+            if (!Geometry.IsInsideBoard(state, targetX, targetY)) return false;
+            if (state.TerrainAtPoint(targetX, targetY) == TerrainType.Impassable) return false;
+
+            var childEchelon = EchelonScale.Smaller(unit.Echelon).Value;
+            var child = UnitStats.For(unit.Type, childEchelon);
+
+            double distance = Distance(unit.X, unit.Y, targetX, targetY);
+            if (distance > unit.Stats.Radius + child.Radius + SplitFormUpBuffer + Geometry.Epsilon) return false;
+            if (distance <= Geometry.Epsilon) return false;
+            if (!Geometry.IsPathWalkable(state, unit.X, unit.Y, targetX, targetY)) return false;
+
+            // The parent shrinks too, so it only has to clear everyone else.
+            if (!IsClearOfUnitsExcept(state, targetX, targetY, child.Radius, unit.Id, -1)) return false;
+            return Distance(unit.X, unit.Y, targetX, targetY) >= 2 * child.Radius - Geometry.Epsilon;
+        }
+
+        /// <summary>
+        /// Samples form-up points for a detachment, validated against
+        /// <see cref="IsLegalSplitTarget"/>. Split placement is continuous, so as
+        /// with movement this samples rather than enumerates.
+        /// </summary>
+        public static List<SplitAction> SampleLegalSplits(GameState state, int unitId, int count, Random rng)
+        {
+            var splits = new List<SplitAction>();
+            var reach = GetSplitRegion(state, unitId);
+            if (reach.Length == 0) return splits;
+
+            var unit = state.GetUnit(unitId);
+            for (int attempt = 0; attempt < count * 8 && splits.Count < count; attempt++)
+            {
+                int ray = rng.Next(reach.Length);
+                double angle = 2.0 * Math.PI * ray / reach.Length;
+                double maxDistance = reach[ray];
+                if (maxDistance <= Geometry.PathBackoff) continue;
+
+                double distance = maxDistance * (0.5 + 0.5 * rng.NextDouble());
+                double x = unit.X + Math.Cos(angle) * distance;
+                double y = unit.Y + Math.Sin(angle) * distance;
+                if (!IsLegalSplitTarget(state, unitId, x, y)) continue;
+                splits.Add(new SplitAction { UnitId = unitId, TargetX = x, TargetY = y });
+            }
+            return splits;
+        }
+
+        private static bool CanSplit(GameState state, Unit unit)
+        {
+            if (unit == null || state.Winner != null) return false;
+            if (unit.Owner != state.CurrentPlayer || unit.HasMoved) return false;
+            if (state.TurnPhase != TurnPhase.Move) return false;
+            return EchelonScale.Smaller(unit.Echelon) != null;
+        }
+
+        private static bool IsClearOfUnitsExcept(GameState state, double x, double y, double radius, int ignoreA, int ignoreB)
+        {
+            foreach (var other in state.Units)
+            {
+                if (other.Id == ignoreA || other.Id == ignoreB) continue;
+                if (Distance(other.X, other.Y, x, y) < radius + other.Stats.Radius - Geometry.Epsilon) return false;
+            }
+            return true;
+        }
+
         // ---------- action enumeration ----------
 
         /// <summary>
@@ -241,6 +404,8 @@ namespace Tactix.Core
                 actions.AddRange(SampleLegalMoves(state, unit.Id, movesPerUnit, rng));
                 actions.AddRange(GetLegalAttacks(state, unit.Id));
                 actions.AddRange(GetLegalHeals(state, unit.Id));
+                actions.AddRange(GetLegalMerges(state, unit.Id));
+                actions.AddRange(SampleLegalSplits(state, unit.Id, 2, rng));
             }
             actions.Add(new EndTurnAction());
             return actions;
@@ -271,6 +436,8 @@ namespace Tactix.Core
                 case MoveAction move: return ApplyMove(state, move, rng);
                 case AttackAction attack: return ApplyAttack(state, attack, rng);
                 case HealAction heal: return ApplyHeal(state, heal);
+                case MergeAction merge: return ApplyMerge(state, merge);
+                case SplitAction split: return ApplySplit(state, split);
                 case EndTurnAction _: return ApplyEndTurn(state);
                 default:
                     throw new IllegalActionException($"Unknown action type {action?.GetType().Name ?? "null"}");
@@ -388,6 +555,89 @@ namespace Tactix.Core
             target.Hp = Math.Min(target.Stats.MaxHp, target.Hp + supporter.Stats.SupportPower);
             supporter.Xp += 1;
             return next;
+        }
+
+        private static GameState ApplyMerge(GameState state, MergeAction merge)
+        {
+            bool legal = GetLegalMerges(state, merge.UnitId)
+                .Any(m => m.AbsorbedUnitId == merge.AbsorbedUnitId);
+            if (!legal)
+                throw new IllegalActionException($"Illegal merge: {merge}");
+
+            var next = state.Clone();
+            var unit = next.GetUnit(merge.UnitId);
+            var absorbed = next.GetUnit(merge.AbsorbedUnitId);
+
+            TryPlanMerge(next, unit, absorbed, out var type, out var echelon, out double x, out double y);
+
+            int pooledHp = unit.Hp + absorbed.Hp;
+            int pooledXp = unit.Xp + absorbed.Xp;
+            bool attacked = unit.HasAttacked || absorbed.HasAttacked;
+            bool supported = unit.HasSupported || absorbed.HasSupported;
+
+            unit.Type = type;
+            unit.Echelon = echelon;
+            unit.X = x;
+            unit.Y = y;
+            // Powers of two make this exact from company scale up; at the smallest
+            // sizes integer rounding caps the pooled strength.
+            unit.Hp = Math.Min(unit.Stats.MaxHp, pooledHp);
+            unit.Xp = pooledXp;
+            unit.HasMoved = true;      // combining is the formation's move
+            unit.HasAttacked = attacked;
+            unit.HasSupported = supported;
+
+            next.Units.Remove(absorbed);
+            return next;
+        }
+
+        private static GameState ApplySplit(GameState state, SplitAction split)
+        {
+            if (!IsLegalSplitTarget(state, split.UnitId, split.TargetX, split.TargetY))
+                throw new IllegalActionException($"Illegal split: {split}");
+
+            var next = state.Clone();
+            var parent = next.GetUnit(split.UnitId);
+            var childEchelon = EchelonScale.Smaller(parent.Echelon).Value;
+
+            int totalHp = parent.Hp;
+            int totalXp = parent.Xp;
+            bool attacked = parent.HasAttacked;
+            bool supported = parent.HasSupported;
+
+            parent.Echelon = childEchelon;
+            int halfMax = parent.Stats.MaxHp;
+            int parentHp = Math.Min(halfMax, (totalHp + 1) / 2); // the parent keeps the odd point
+            int childHp = Math.Min(halfMax, totalHp - parentHp);
+
+            parent.Hp = Math.Max(1, parentHp);
+            parent.Xp = (totalXp + 1) / 2;
+            parent.HasMoved = true;
+
+            var detachment = new Unit
+            {
+                Id = NextUnitId(next),
+                Owner = parent.Owner,
+                Type = parent.Type,
+                Echelon = childEchelon,
+                X = split.TargetX,
+                Y = split.TargetY,
+                Hp = Math.Max(1, childHp),
+                Xp = totalXp / 2,
+                HasMoved = true,
+                HasAttacked = attacked,
+                HasSupported = supported,
+            };
+            next.Units.Add(detachment);
+            return next;
+        }
+
+        /// <summary>Ids are never reused, so a detachment always gets a fresh one.</summary>
+        private static int NextUnitId(GameState state)
+        {
+            int highest = -1;
+            foreach (var unit in state.Units) highest = Math.Max(highest, unit.Id);
+            return highest + 1;
         }
 
         private static GameState ApplyEndTurn(GameState state)

@@ -169,7 +169,7 @@ namespace Tactix.Core.Tests
                 Assert.AreEqual(i - 1, (int)step["stepIndex"]);
 
                 var actionType = (string)step["action"]["actionType"];
-                CollectionAssert.Contains(new[] { "move", "attack", "heal", "endTurn" }, actionType);
+                CollectionAssert.Contains(new[] { "move", "attack", "heal", "merge", "split", "endTurn" }, actionType);
 
                 // The acting player recorded on the line matches the pre-state.
                 Assert.AreEqual((int)step["stateBefore"]["currentPlayer"], (int)step["player"]);

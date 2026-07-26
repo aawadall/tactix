@@ -51,9 +51,20 @@ namespace Tactix.Core
             Echelon.Division, Echelon.Corps, Echelon.Army, Echelon.ArmyGroup, Echelon.Theater,
         };
 
-        /// <summary>Multiplier on attack power, support power, and hit points.</summary>
+        /// <summary>
+        /// Multiplier on attack power, support power, and hit points: each step up
+        /// doubles. Powers of two are what make amalgamation conserve — two units
+        /// of one size carry exactly the strength of one unit a size larger, so
+        /// merging is a decision about tempo and precision rather than a way to
+        /// gain or lose mass. (Below company scale, integer rounding means the
+        /// smallest rungs floor at 1 HP and conservation becomes approximate.)
+        /// </summary>
         private static readonly double[] Strength =
-        { 0.23, 0.31, 0.42, 0.57, 0.76, 1.00, 1.45, 2.10, 3.05, 4.42, 6.41, 9.29, 13.5, 19.5 };
+        {
+            1.0 / 32, 1.0 / 16, 1.0 / 8, 1.0 / 4, 1.0 / 2,
+            1.0,
+            2, 4, 8, 16, 32, 64, 128, 256,
+        };
 
         /// <summary>Multiplier on movement range — big formations are ponderous.</summary>
         private static readonly double[] Mobility =
@@ -87,6 +98,20 @@ namespace Tactix.Core
         { 0.00, 0.00, 0.00, 0.01, 0.03, 0.05, 0.08, 0.11, 0.14, 0.18, 0.21, 0.24, 0.27, 0.30 };
 
         public static double StrengthMultiplier(Echelon e) => Strength[Index(e)];
+
+        /// <summary>The next size up, or null at the top of the ladder.</summary>
+        public static Echelon? Larger(Echelon echelon)
+        {
+            int i = Index(echelon);
+            return i + 1 < Strength.Length ? (Echelon?)(Echelon)(i + 1) : null;
+        }
+
+        /// <summary>The next size down, or null at the bottom of the ladder.</summary>
+        public static Echelon? Smaller(Echelon echelon)
+        {
+            int i = Index(echelon);
+            return i > 0 ? (Echelon?)(Echelon)(i - 1) : null;
+        }
         public static double MobilityMultiplier(Echelon e) => Mobility[Index(e)];
         public static double ReachMultiplier(Echelon e) => Reach[Index(e)];
         public static double VisionMultiplier(Echelon e) => Vision[Index(e)];

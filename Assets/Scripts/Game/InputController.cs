@@ -20,6 +20,10 @@ namespace Tactix.Game
         private int? _selectedUnitId;
         private List<AttackAction> _legalAttacks = new List<AttackAction>();
         private List<HealAction> _legalHeals = new List<HealAction>();
+        private List<MergeAction> _legalMerges = new List<MergeAction>();
+
+        /// <summary>While held, a click places a detachment instead of moving.</summary>
+        public bool SplitMode { get; private set; }
 
         public void Init(GameController game, BoardRenderer board)
         {
@@ -38,6 +42,15 @@ namespace Tactix.Game
             if (Input.GetMouseButtonDown(1))
             {
                 ClearSelection();
+                return;
+            }
+
+            // S toggles detachment mode: the next click forms a new unit rather
+            // than moving the selected one.
+            if (Input.GetKeyDown(KeyCode.S) && _selectedUnitId.HasValue)
+            {
+                SplitMode = !SplitMode;
+                RefreshSelection();
                 return;
             }
 
@@ -60,12 +73,20 @@ namespace Tactix.Game
                 }
             }
 
-            // Treat a ringed casualty (medic/service company).
+            // Act on a ringed friendly: treat a casualty, or amalgamate with it.
             if (_selectedUnitId.HasValue && clickedUnit != null && clickedUnit.Owner == state.CurrentPlayer)
             {
                 var heal = _legalHeals.FirstOrDefault(h => h.TargetUnitId == clickedUnit.Id);
                 if (heal != null && _game.TrySubmitAction(heal))
                 {
+                    RefreshSelection();
+                    return;
+                }
+
+                var merge = _legalMerges.FirstOrDefault(m => m.AbsorbedUnitId == clickedUnit.Id);
+                if (merge != null && _game.TrySubmitAction(merge))
+                {
+                    SplitMode = false;
                     RefreshSelection();
                     return;
                 }
@@ -76,6 +97,18 @@ namespace Tactix.Game
             {
                 _selectedUnitId = clickedUnit.Id;
                 RefreshSelection();
+                return;
+            }
+
+            // Form up a detachment on open ground.
+            if (SplitMode && _selectedUnitId.HasValue && clickedUnit == null)
+            {
+                var split = new SplitAction { UnitId = _selectedUnitId.Value, TargetX = x, TargetY = y };
+                if (Rules.IsLegalSplitTarget(state, split.UnitId, x, y) && _game.TrySubmitAction(split))
+                {
+                    SplitMode = false;
+                    RefreshSelection();
+                }
                 return;
             }
 
@@ -117,8 +150,10 @@ namespace Tactix.Game
         public void ClearSelection()
         {
             _selectedUnitId = null;
+            SplitMode = false;
             _legalAttacks.Clear();
             _legalHeals.Clear();
+            _legalMerges.Clear();
             if (_board != null) _board.ClearHighlights();
             if (_game != null && _game.Ui != null) _game.Ui.HideTelemetry();
         }
@@ -135,16 +170,24 @@ namespace Tactix.Game
 
             _legalAttacks = Rules.GetLegalAttacks(state, unit.Id);
             _legalHeals = Rules.GetLegalHeals(state, unit.Id);
+            _legalMerges = Rules.GetLegalMerges(state, unit.Id);
+
             var targets = _legalAttacks
                 .Select(a => state.GetUnit(a.TargetUnitId))
                 .Where(t => t != null);
-            var casualties = _legalHeals
+            // Casualties and merge partners share the friendly ring.
+            var friendlies = _legalHeals
                 .Select(h => state.GetUnit(h.TargetUnitId))
-                .Where(t => t != null);
+                .Concat(_legalMerges.Select(m => state.GetUnit(m.AbsorbedUnitId)))
+                .Where(t => t != null)
+                .Distinct();
 
-            _board.SetMoveRegion(unit, Rules.GetMoveRegion(state, unit.Id));
-            _board.SetSelection(unit, targets, casualties);
-            _game.Ui.ShowTelemetry(unit, state);
+            // In detachment mode the shaded area is where the new unit may form up.
+            _board.SetMoveRegion(unit, SplitMode
+                ? Rules.GetSplitRegion(state, unit.Id)
+                : Rules.GetMoveRegion(state, unit.Id));
+            _board.SetSelection(unit, targets, friendlies);
+            _game.Ui.ShowTelemetry(unit, state, SplitMode);
         }
     }
 }

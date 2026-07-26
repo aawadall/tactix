@@ -142,6 +142,21 @@ contours mark cliffs.
   the axis itself. `resources/Military_Symbology_Guide.svg.webp` is the
   reference chart the symbology follows.
 
+- **Amalgamation and detachment.** Two friendly formations of the *same* size,
+  standing in contact and both unmoved, may combine into one formation a size
+  larger; a formation may equally detach half of itself onto adjacent ground.
+  Both are actions, both consume the turn's move, and both are logged.
+  - Because strength doubles per echelon step, this **conserves**: two 5 HP
+    companies make one 10 HP battalion and back again. (Below company scale,
+    halving an odd stat cannot be exact, so merges there are capped rather than
+    conserved.)
+  - Merging unlike branches produces a **combined-arms** formation. It does not
+    record what went into it, so a unit's stats stay a pure function of its type
+    and echelon.
+  - The trade is real in both directions: merging buys mass, staying power and
+    one heavy blow, and costs an action per turn, speed, precision, and a bigger
+    footprint. Splitting buys tempo, coverage and actions, and costs durability.
+
 - **Support units** are unarmed and restore HP to friendlies, split by role:
   the Medical Section heals *dismounted* units (Infantry, Mech Infantry, Recon,
   Medic) for +2 HP at range 1.5; the Service Company repairs *vehicles* (Armor,

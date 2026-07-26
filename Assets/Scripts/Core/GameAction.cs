@@ -66,6 +66,48 @@ namespace Tactix.Core
         public override string ToString() => $"Heal(unit {UnitId} -> unit {TargetUnitId})";
     }
 
+    /// <summary>
+    /// Amalgamating two friendly formations of the same size into one a size
+    /// larger. The surviving unit keeps <see cref="UnitId"/>; the absorbed unit's
+    /// id leaves the game.
+    /// </summary>
+    public sealed class MergeAction : GameAction
+    {
+        public const string TypeName = "merge";
+        public override string ActionType => TypeName;
+
+        [JsonProperty("unitId")]
+        public int UnitId { get; set; }
+
+        [JsonProperty("absorbedUnitId")]
+        public int AbsorbedUnitId { get; set; }
+
+        public override string ToString() => $"Merge(unit {UnitId} <- unit {AbsorbedUnitId})";
+    }
+
+    /// <summary>
+    /// Breaking a formation into two of the next size down. The original keeps
+    /// <see cref="UnitId"/> and stays put; the detachment is a new unit placed at
+    /// the target point.
+    /// </summary>
+    public sealed class SplitAction : GameAction
+    {
+        public const string TypeName = "split";
+        public override string ActionType => TypeName;
+
+        [JsonProperty("unitId")]
+        public int UnitId { get; set; }
+
+        /// <summary>Where the detached half forms up, in world coordinates.</summary>
+        [JsonProperty("targetX")]
+        public double TargetX { get; set; }
+
+        [JsonProperty("targetY")]
+        public double TargetY { get; set; }
+
+        public override string ToString() => $"Split(unit {UnitId} -> {TargetX:0.###},{TargetY:0.###})";
+    }
+
     public sealed class EndTurnAction : GameAction
     {
         public const string TypeName = "endTurn";
@@ -97,6 +139,8 @@ namespace Tactix.Core
                 case MoveAction.TypeName: return obj.ToObject<MoveAction>();
                 case AttackAction.TypeName: return obj.ToObject<AttackAction>();
                 case HealAction.TypeName: return obj.ToObject<HealAction>();
+                case MergeAction.TypeName: return obj.ToObject<MergeAction>();
+                case SplitAction.TypeName: return obj.ToObject<SplitAction>();
                 case EndTurnAction.TypeName: return obj.ToObject<EndTurnAction>();
                 default: throw new JsonSerializationException($"Unknown actionType '{type}'");
             }

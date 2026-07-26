@@ -16,7 +16,7 @@ namespace Tactix.Core
     /// </summary>
     public sealed class GameLogger : IDisposable
     {
-        public const int SchemaVersion = 7;
+        public const int SchemaVersion = 8;
 
         private readonly StreamWriter _writer;
         private int _stepCount;

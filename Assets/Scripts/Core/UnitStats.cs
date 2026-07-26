@@ -99,11 +99,20 @@ namespace Tactix.Core
             requiresLineOfSight: false, isVehicle: true,
             supportPower: 3, supportRange: 1.2, supports: SupportTarget.Vehicles);
 
+        /// <summary>
+        /// A blend of manoeuvre branches, formed by amalgamating unlike units.
+        /// Tougher and harder-hitting than infantry, slower and shorter-sighted
+        /// than armour, and dismounted enough for a medic to treat.
+        /// </summary>
+        public static readonly UnitStats CombinedArms = new UnitStats(
+            moveRange: 3.5, attackRange: 1.3, attackPower: 3, maxHp: 6, sight: 3.5, radius: 0.38,
+            requiresLineOfSight: false, isVehicle: false);
+
         /// <summary>All unit types, in display order (for legends, tools, iteration).</summary>
         public static readonly UnitType[] AllTypes =
         {
             UnitType.Infantry, UnitType.MechInfantry, UnitType.Armor, UnitType.Artillery,
-            UnitType.Recon, UnitType.Medic, UnitType.Service,
+            UnitType.Recon, UnitType.Medic, UnitType.Service, UnitType.CombinedArms,
         };
 
         /// <summary>The company-scale reference profile for a unit type.</summary>
@@ -118,6 +127,7 @@ namespace Tactix.Core
                 case UnitType.Recon: return Recon;
                 case UnitType.Medic: return Medic;
                 case UnitType.Service: return Service;
+                case UnitType.CombinedArms: return CombinedArms;
                 default: throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown unit type");
             }
         }

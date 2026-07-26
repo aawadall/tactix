@@ -169,6 +169,15 @@ namespace Tactix.Game
                            "and treating someone does not end the movement phase for the rest of " +
                            "your army. It cannot treat itself.";
 
+                case UnitType.CombinedArms:
+                    return "Not recruited — formed. Amalgamating two formations of different " +
+                           "branches produces a combined-arms unit of the next size up.\n\n" +
+                           "Tougher and harder-hitting than infantry, slower and shorter-sighted " +
+                           "than armour. Counts as dismounted, so a medic can treat it.\n\n" +
+                           "It does not remember what went into it: an infantry-plus-armour " +
+                           "battalion and a recon-plus-artillery battalion are the same unit. " +
+                           "That keeps a unit's stats a pure function of its type and size.";
+
                 case UnitType.Service:
                     return "Keeps the vehicles running. Restores 3 HP — the largest single heal in " +
                            "the game — to armour, artillery, or another service company within 1.2.\n\n" +

@@ -146,10 +146,11 @@ namespace Tactix.Game
 
         // ---------- telemetry ----------
 
-        public void ShowTelemetry(Unit unit, GameState state)
+        public void ShowTelemetry(Unit unit, GameState state, bool splitMode = false)
         {
             var s = unit.Stats;
             var sb = new StringBuilder();
+            if (splitMode) sb.AppendLine("[ DETACHING — click where the new unit forms up ]");
             sb.AppendLine($"{VisualAssets.UnitDisplayName(unit.Type, unit.Echelon)}");
             sb.AppendLine($"Player {unit.Owner + 1} ({PlayerName(unit.Owner)})");
             sb.AppendLine($"Health {unit.Hp}/{s.MaxHp}    XP {unit.Xp}");
@@ -360,7 +361,8 @@ namespace Tactix.Game
                 "Dismounted = infantry, mech, recon, medic.   Vehicles = armor, artillery, service.\n" +
                 "Free movement: a unit dashes in a straight line anywhere inside its shaded region; a click outside it is clamped to the nearest reachable point.\n" +
                 "Move any units, then attack — the first attack ends movement for the whole turn. Support is the exception: healing has its own slot and never locks movement.\n" +
-                "Red rings = attackable enemies.   Green rings = casualties you can treat.   XP: +1 per attack or heal, +2 bonus per kill.",
+                "Red rings = attackable enemies.   Green rings = friendlies you can treat or amalgamate with.   XP: +1 per attack or heal, +2 bonus per kill.\n" +
+                "Amalgamate: select a unit, click a green-ringed friendly of the same size — two formations become one a size larger. Press S to detach one back off.",
                 15, TextAnchor.MiddleCenter);
             Anchor(note.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, -258), new Vector2(960, 86));
 
