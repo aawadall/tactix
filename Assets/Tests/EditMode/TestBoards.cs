@@ -19,6 +19,9 @@ namespace Tactix.Core.Tests
                 Terrain = terrain,
                 Elevation = elevation,
                 Units = new List<Unit>(),
+                // Rules tests assert exact outcomes, so boards default to the
+                // deterministic ruleset; variance is exercised by its own tests.
+                Ruleset = Ruleset.Deterministic,
                 CurrentPlayer = 0,
                 TurnPhase = TurnPhase.Move,
                 TurnNumber = 1,
@@ -37,17 +40,25 @@ namespace Tactix.Core.Tests
             return state;
         }
 
-        public static GameState WithUnit(this GameState state, int id, int owner, UnitType type, double x, double y, int? hp = null)
+        public static GameState WithUnit(this GameState state, int id, int owner, UnitType type, double x, double y,
+            int? hp = null, Echelon echelon = Echelon.Company)
         {
             state.Units.Add(new Unit
             {
                 Id = id,
                 Owner = owner,
                 Type = type,
+                Echelon = echelon,
                 X = x,
                 Y = y,
-                Hp = hp ?? UnitStats.For(type).MaxHp,
+                Hp = hp ?? UnitStats.For(type, echelon).MaxHp,
             });
+            return state;
+        }
+
+        public static GameState WithRuleset(this GameState state, Ruleset ruleset)
+        {
+            state.Ruleset = ruleset;
             return state;
         }
 

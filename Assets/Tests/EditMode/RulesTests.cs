@@ -495,6 +495,7 @@ namespace Tactix.Core.Tests
         public void GameState_JsonRoundTrip_IsLossless()
         {
             var state = LevelConfig.CreateStandardGame();
+            state.Ruleset = Ruleset.Deterministic; // so the unit lands exactly where ordered
             state = Rules.Apply(state, TestBoards.Move(0, 7.25, 2.5));
             string json = state.ToJson();
             var restored = GameState.FromJson(json);
@@ -505,6 +506,8 @@ namespace Tactix.Core.Tests
             StringAssert.Contains("\"mechInfantry\"", json);
             StringAssert.Contains("\"xp\"", json);
             StringAssert.Contains("\"elevation\"", json);
+            StringAssert.Contains("\"echelon\"", json);
+            StringAssert.Contains("\"ruleset\"", json);
         }
 
         [Test]

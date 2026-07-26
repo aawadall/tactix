@@ -128,12 +128,13 @@ namespace Tactix.Core.Tests
         public void Generated_MapsArePlayableToCompletion()
         {
             var bot = new RandomBot(seed: 3);
+            var outcomes = new SeededRandom(3);
             var state = MapGenerator.Generate(24, 24, 777);
             int steps = 0;
             while (state.Winner == null && steps < 20000)
             {
                 var action = bot.ChooseAction(state);
-                Assert.DoesNotThrow(() => state = Rules.Apply(state, action), $"rejected {action}");
+                Assert.DoesNotThrow(() => state = Rules.Apply(state, action, outcomes), $"rejected {action}");
                 steps++;
             }
             Assert.IsNotNull(state.Winner, "self-play on a generated map did not terminate");

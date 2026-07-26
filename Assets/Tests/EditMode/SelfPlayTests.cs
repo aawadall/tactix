@@ -35,11 +35,13 @@ namespace Tactix.Core.Tests
         {
             for (int game = 0; game < Games; game++)
             {
-                var bot = new RandomBot(seed: 1000 + game);
+                int seed = 1000 + game;
+                var bot = new RandomBot(seed: seed);
+                var outcomes = new RecordingRandom(bot.OutcomeRandom);
                 var state = LevelConfig.CreateStandardGame();
                 string logFile;
 
-                using (var logger = new GameLogger(_logDir, "botVsBot", state))
+                using (var logger = new GameLogger(_logDir, "botVsBot", state, rngSeed: seed))
                 {
                     logFile = logger.FilePath;
                     int steps = 0;
@@ -48,12 +50,13 @@ namespace Tactix.Core.Tests
                         Assert.Less(steps, MaxStepsPerGame, $"game {game} did not terminate");
                         var action = bot.ChooseAction(state);
 
-                        // The bot only constructs from GetAllLegalActions; Apply must accept it.
+                        // The bot only plays actions the engine produced; Apply must accept it.
+                        outcomes.Reset();
                         GameState next = null;
-                        Assert.DoesNotThrow(() => next = Rules.Apply(state, action),
+                        Assert.DoesNotThrow(() => next = Rules.Apply(state, action, outcomes),
                             $"legal action rejected: {action}");
 
-                        logger.LogStep(state, action, next);
+                        logger.LogStep(state, action, next, outcomes.Draws);
                         state = next;
                         steps++;
                     }
@@ -71,6 +74,7 @@ namespace Tactix.Core.Tests
             // engine offers must apply cleanly, not just the one the bot played.
             var bot = new RandomBot(seed: 7);
             var rng = new Random(7);
+            var outcomes = new SeededRandom(7);
             var state = LevelConfig.CreateStandardGame();
             int steps = 0;
 
@@ -79,10 +83,10 @@ namespace Tactix.Core.Tests
                 if (rng.Next(10) == 0)
                 {
                     foreach (var candidate in Rules.GetAllLegalActions(state, rng))
-                        Assert.DoesNotThrow(() => Rules.Apply(state, candidate),
+                        Assert.DoesNotThrow(() => Rules.Apply(state, candidate, outcomes),
                             $"action in legal set rejected: {candidate}");
                 }
-                state = Rules.Apply(state, bot.ChooseAction(state));
+                state = Rules.Apply(state, bot.ChooseAction(state), outcomes);
                 steps++;
             }
         }
@@ -93,7 +97,11 @@ namespace Tactix.Core.Tests
             // Constraint projection is the continuous stand-in for hard action
             // masking: whatever a policy asks for, the projected point must be legal.
             var rng = new Random(11);
+            var outcomes = new SeededRandom(11);
+            // Movement friction would move the unit short of the projected point,
+            // so this checks the projection contract under exact resolution.
             var state = LevelConfig.CreateStandardGame();
+            state.Ruleset = Ruleset.Deterministic;
 
             for (int i = 0; i < 400; i++)
             {
@@ -106,8 +114,9 @@ namespace Tactix.Core.Tests
 
                 Assert.IsTrue(Rules.IsLegalMoveTarget(state, unit.Id, px, py),
                     $"projection produced an illegal target ({px},{py}) for request ({requestX},{requestY})");
-                state = Rules.Apply(state, new MoveAction { UnitId = unit.Id, TargetX = px, TargetY = py });
-                if (Rules.GetAllLegalActions(state, rng).Count <= 1) state = Rules.Apply(state, new EndTurnAction());
+                state = Rules.Apply(state, new MoveAction { UnitId = unit.Id, TargetX = px, TargetY = py }, outcomes);
+                if (Rules.GetAllLegalActions(state, rng).Count <= 1)
+                    state = Rules.Apply(state, new EndTurnAction(), outcomes);
             }
         }
 
@@ -119,8 +128,9 @@ namespace Tactix.Core.Tests
             using (var logger = new GameLogger(_logDir, "hotseat", state))
             {
                 logFile = logger.FilePath;
+                var outcomes = new RecordingRandom(new SeededRandom(1));
                 var action = Rules.GetAllLegalActions(state).First();
-                logger.LogStep(state, action, Rules.Apply(state, action));
+                logger.LogStep(state, action, Rules.Apply(state, action, outcomes), outcomes.Draws);
                 // Disposed without LogResult -> abort line expected.
             }
 

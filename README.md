@@ -111,6 +111,37 @@ contours mark cliffs.
   | Medic | 4.0 | — | unarmed | 4 | 4 | 0.30 | — |
   | Service | 2.5 | — | unarmed | 6 | 3 | 0.40 | — |
 
+- **Echelon (formation size)** is an independent axis from unit type: any type
+  can exist at any of the fourteen APP-6 sizes, from Fire Team up to Theatre,
+  and a single army freely mixes them. Company is the reference scale — the table above is
+  company-scale — and every other size scales it:
+
+  | | smaller formations | larger formations |
+  |---|---|---|
+  | strength (damage, HP) | ×0.23 at Fire Team | ×19.5 at Theater |
+  | mobility | ×1.35 | ×0.40 |
+  | reach (attack/support range) | ×0.80 | ×1.95 |
+  | sight | ×0.75 | ×1.72 |
+  | footprint (collision radius) | ×0.55 | ×3.00 |
+  | **uncertainty** | exact | widest |
+
+  The last row is the point of the ladder. A fire team does precisely what it
+  is told; a theatre command is an abstraction over so many subordinate actions
+  that its results are only statistical:
+  - **Damage variance** — damage is drawn uniformly from `power ± spread`,
+    where spread runs from 0 (fire team through squad) to 45% of power
+    (theatre).
+  - **Movement friction** — a formation may fall short of the distance it was
+    ordered to cover, by up to 0 % (small units) to 30 % (theatre). It stops
+    early along the same heading; it never overshoots and never deflects.
+
+  Echelon is drawn as the standard NATO marking above each symbol — Ø, •, ••,
+  •••, ••••, |, ||, |||, X, XX … XXXXXX — and unit symbols scale with their
+  footprint. The four-dot level is APP-6's "echelon / half-squadron / troop
+  (major)"; it is called **Detachment** here so the name does not collide with
+  the axis itself. `resources/Military_Symbology_Guide.svg.webp` is the
+  reference chart the symbology follows.
+
 - **Support units** are unarmed and restore HP to friendlies, split by role:
   the Medical Section heals *dismounted* units (Infantry, Mech Infantry, Recon,
   Medic) for +2 HP at range 1.5; the Service Company repairs *vehicles* (Armor,
@@ -144,7 +175,27 @@ contours mark cliffs.
   forest), floored at 0; no counterattacks. A unit at 0 HP is removed;
   eliminating all enemy units wins.
 
-## Data schemas (schemaVersion 6)
+## Determinism and the random source
+
+With `ruleset.damageVariance` or `ruleset.movementFriction` on, `Rules.Apply` is
+no longer a pure function of `(state, action)` — so the randomness is made
+explicit rather than ambient:
+
+```csharp
+var outcomes = new RecordingRandom(new SeededRandom(seed));
+outcomes.Reset();
+var next = Rules.Apply(state, action, outcomes);
+logger.LogStep(state, action, next, outcomes.Draws);   // draws recorded per step
+```
+
+`Apply` **throws** if the ruleset is stochastic and no `IRandomSource` is
+supplied, so a caller can never silently lose the draws. Feeding a step's logged
+draws back through `ReplayRandom` reproduces it exactly — there is a test that
+replays a whole game this way and compares final states. `Ruleset.Deterministic`
+turns both off and restores the pure-function engine, which is the sensible
+baseline for a first training run.
+
+## Data schemas (schemaVersion 7)
 
 Everything below is produced by `Tactix.Core` via Newtonsoft.Json and is the
 contract for the future imitation-learning pipeline. **Schema stability matters
@@ -158,11 +209,12 @@ more than anything else here** — change nothing without bumping
   "terrain": [[0,0,1,2,0,0,0,0], ...],
   "elevation": [[0,0,1,2,2,1,0,0], ...],
   "units": [
-    {"id":0,"owner":0,"type":"infantry","x":6.0,"y":2.0,"hp":5,"xp":0,
-     "hasMoved":false,"hasAttacked":false,"hasSupported":false},
-    {"id":12,"owner":0,"type":"medic","x":7.5,"y":1.0,"hp":4,"xp":0,
-     "hasMoved":false,"hasAttacked":false,"hasSupported":false}
+    {"id":0,"owner":0,"type":"infantry","echelon":"company","x":6.0,"y":2.0,
+     "hp":5,"xp":0,"hasMoved":false,"hasAttacked":false,"hasSupported":false},
+    {"id":6,"owner":0,"type":"armor","echelon":"brigade","x":10.5,"y":1.0,
+     "hp":24,"xp":0,"hasMoved":false,"hasAttacked":false,"hasSupported":false}
   ],
+  "ruleset": {"damageVariance": true, "movementFriction": true},
   "currentPlayer": 0,
   "turnPhase": "move",
   "turnNumber": 1,
@@ -174,7 +226,8 @@ more than anything else here** — change nothing without bumping
 |---|---|
 | `terrain` | rows of columns, `terrain[y][x]`; codes: `0` open, `1` forest, `2` impassable. Board size is implied by the array — never fixed. |
 | `elevation` | rows of columns, same shape as `terrain`; whole levels (0–3 on the standard map). Drives cliffs, high-ground bonus, and 3D line of sight. |
-| `units` | variable-length entity list; `x`/`y` are **floating-point world coordinates**; `type` is `"infantry"` \| `"mechInfantry"` \| `"armor"` \| `"artillery"` \| `"recon"` \| `"medic"` \| `"service"`; `xp` is +1 per attack or heal, +2 more per kill (no gameplay effect yet); `hasSupported` is the support unit's own per-turn slot, independent of `hasAttacked`; ids are stable for the whole game; dead units are removed from the list. Per-type constants (range, radius, support power, …) live in `UnitStats`, not in the state. |
+| `units` | variable-length entity list; `x`/`y` are **floating-point world coordinates**; `type` is `"infantry"` \| `"mechInfantry"` \| `"armor"` \| `"artillery"` \| `"recon"` \| `"medic"` \| `"service"`; `echelon` is `"fireTeam"` \| `"squad"` \| `"section"` \| `"platoon"` \| `"detachment"` \| `"company"` \| `"battalion"` \| `"regiment"` \| `"brigade"` \| `"division"` \| `"corps"` \| `"army"` \| `"armyGroup"` \| `"theater"`; `xp` is +1 per attack or heal, +2 more per kill (no gameplay effect yet); `hasSupported` is the support unit's own per-turn slot, independent of `hasAttacked`; ids are stable for the whole game; dead units are removed from the list. Derived constants (range, radius, damage spread, …) come from `UnitStats.For(type, echelon)` and are not stored in the state. |
+| `ruleset` | which scale-driven uncertainties are active. Logged with every position so a model can see the regime it is playing under. |
 | `currentPlayer` | `0` or `1` |
 | `turnPhase` | `"move"` \| `"attack"` — first attack of a turn switches it; movement is only legal in `"move"`. |
 | `turnNumber` | 1-based ply counter, +1 on every end-turn. |
@@ -222,15 +275,19 @@ next to the executable in builds. One JSON object per line, in order:
    `mapSeed` is `null` for the standard map; for generated maps it reproduces
    the board exactly via `MapGenerator.Generate(w, h, seed)`.
 
-   Version history — v6 added `mapSource`/`mapSeed`; v5 added support units
+   Version history — v7 added `echelon`, `ruleset`, `rngSeed`, and per-step
+   `rngDraws`, and is the first schema whose games are not reproducible from
+   `(state, action)` alone; v6 added `mapSource`/`mapSeed`; v5 added support units
    (`medic`, `service`, `hasSupported`, `heal` actions); v4 moved to continuous
    positions (float `x`/`y`); v3 was the last grid-based schema (integer tile
    coordinates); v2 lacked `elevation`; v1 also lacked `xp`. **Grid-era logs
    (v1–v3) are not compatible with continuous-era models** — the coordinate
    semantics differ, so filter on `schemaVersion` before training.
 2. **step** (one per applied action):
-   `{"type":"step","stepIndex":<0-based>,"player":<actor>,"stateBefore":<GameState>,"action":<Action>,"stateAfter":<GameState>}`
+   `{"type":"step","stepIndex":<0-based>,"player":<actor>,"stateBefore":<GameState>,"action":<Action>,"rngDraws":[0.41,0.93],"stateAfter":<GameState>}`
    — steps chain: `stateAfter` of step *n* equals `stateBefore` of step *n+1*.
+   `rngDraws` holds the random values consumed resolving that action, in order,
+   and is omitted entirely when the step resolved deterministically.
 3. **result** (last line, exactly once):
    `{"type":"result","winner":0|1|null,"completed":true|false,"totalSteps":<n>}`
    — `completed:false` (with `winner:null`) marks a game abandoned mid-way

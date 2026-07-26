@@ -78,26 +78,33 @@ namespace Tactix.Core
         /// <see cref="DeployStandardArmies"/> re-centres it on any board width.
         /// Player 1 mirrors it through the board centre.
         /// </summary>
-        private static readonly (UnitType type, double x, double y)[] Formation =
+        /// <summary>
+        /// A mixed order of battle: a brigade-weight anchor, companies holding the
+        /// line, and small fast elements screening. Echelon is free per unit — the
+        /// full ladder from fire team to theatre exists in the data model — but a
+        /// playable starting force spans only a few steps of it.
+        /// </summary>
+        private static readonly (UnitType type, Echelon echelon, double x, double y)[] Formation =
         {
             // screening line
-            (UnitType.Infantry, 6.0, 2.0),
-            (UnitType.Infantry, 8.0, 2.0),
-            (UnitType.Infantry, 10.0, 2.0),
-            (UnitType.MechInfantry, 13.0, 2.0),
-            (UnitType.MechInfantry, 15.0, 2.0),
-            (UnitType.MechInfantry, 17.0, 2.0),
-            // armour and scouts
-            (UnitType.Armor, 10.5, 1.0),
-            (UnitType.Armor, 13.5, 1.0),
-            (UnitType.Recon, 4.0, 1.0),
+            (UnitType.Infantry, Echelon.Company, 6.0, 2.0),
+            (UnitType.Infantry, Echelon.Company, 8.0, 2.0),
+            (UnitType.Infantry, Echelon.Battalion, 10.0, 2.0),
+            (UnitType.MechInfantry, Echelon.Company, 13.0, 2.0),
+            (UnitType.MechInfantry, Echelon.Battalion, 15.0, 2.0),
+            (UnitType.MechInfantry, Echelon.Platoon, 17.0, 2.0),
+            // armour: one heavy formation, one manoeuvre element
+            (UnitType.Armor, Echelon.Brigade, 10.5, 1.0),
+            (UnitType.Armor, Echelon.Company, 13.5, 1.0),
+            // scouts run small and fast
+            (UnitType.Recon, Echelon.Platoon, 4.0, 1.0),
             // guns to the rear
-            (UnitType.Artillery, 9.5, 0.0),
-            (UnitType.Artillery, 11.5, 0.0),
-            (UnitType.Artillery, 13.5, 0.0),
+            (UnitType.Artillery, Echelon.Company, 9.5, 0.0),
+            (UnitType.Artillery, Echelon.Battalion, 11.5, 0.0),
+            (UnitType.Artillery, Echelon.Company, 13.5, 0.0),
             // support echelon, tucked behind the line
-            (UnitType.Medic, 7.5, 1.0),
-            (UnitType.Service, 16.0, 0.6),
+            (UnitType.Medic, Echelon.Section, 7.5, 1.0),
+            (UnitType.Service, Echelon.Company, 16.0, 0.6),
         };
 
         public static GameState CreateStandardGame()
@@ -125,6 +132,7 @@ namespace Tactix.Core
                 Terrain = terrain,
                 Elevation = elevation,
                 Units = new List<Unit>(),
+                Ruleset = Ruleset.Standard,
                 CurrentPlayer = 0,
                 TurnPhase = TurnPhase.Move,
                 TurnNumber = 1,
@@ -146,18 +154,18 @@ namespace Tactix.Core
             double centre = (state.Width - 1) / 2.0;
 
             double widestOffset = 0;
-            foreach (var (_, x, _) in Formation)
-                widestOffset = Math.Max(widestOffset, Math.Abs(x - authoredCentre));
+            foreach (var entry in Formation)
+                widestOffset = Math.Max(widestOffset, Math.Abs(entry.x - authoredCentre));
 
             double usableHalfWidth = centre - 0.5;
             double scale = widestOffset > usableHalfWidth ? usableHalfWidth / widestOffset : 1.0;
 
             state.Units.Clear();
             int id = 0;
-            foreach (var (type, x, y) in Formation)
-                state.Units.Add(NewUnit(id++, 0, type, centre + (x - authoredCentre) * scale, y));
-            foreach (var (type, x, y) in Formation)
-                state.Units.Add(NewUnit(id++, 1, type,
+            foreach (var (type, echelon, x, y) in Formation)
+                state.Units.Add(NewUnit(id++, 0, type, echelon, centre + (x - authoredCentre) * scale, y));
+            foreach (var (type, echelon, x, y) in Formation)
+                state.Units.Add(NewUnit(id++, 1, type, echelon,
                     centre - (x - authoredCentre) * scale, state.Height - 1 - y));
 
             ValidateDeployment(state);
@@ -191,16 +199,17 @@ namespace Tactix.Core
             }
         }
 
-        private static Unit NewUnit(int id, int owner, UnitType type, double x, double y)
+        private static Unit NewUnit(int id, int owner, UnitType type, Echelon echelon, double x, double y)
         {
             return new Unit
             {
                 Id = id,
                 Owner = owner,
                 Type = type,
+                Echelon = echelon,
                 X = x,
                 Y = y,
-                Hp = UnitStats.For(type).MaxHp,
+                Hp = UnitStats.For(type, echelon).MaxHp,
                 HasMoved = false,
                 HasAttacked = false,
             };

@@ -38,6 +38,10 @@ namespace Tactix.Core
         [JsonProperty("units")]
         public List<Unit> Units { get; set; } = new List<Unit>();
 
+        /// <summary>Which scale-driven uncertainties are active for this game.</summary>
+        [JsonProperty("ruleset")]
+        public Ruleset Ruleset { get; set; } = Ruleset.Standard;
+
         /// <summary>Player whose turn it is: 0 or 1.</summary>
         [JsonProperty("currentPlayer")]
         public int CurrentPlayer { get; set; }
@@ -109,6 +113,7 @@ namespace Tactix.Core
                 Terrain = terrain,
                 Elevation = elevation,
                 Units = Units.Select(u => u.Clone()).ToList(),
+                Ruleset = Ruleset?.Clone() ?? Ruleset.Deterministic,
                 CurrentPlayer = CurrentPlayer,
                 TurnPhase = TurnPhase,
                 TurnNumber = TurnNumber,

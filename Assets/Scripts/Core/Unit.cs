@@ -19,6 +19,11 @@ namespace Tactix.Core
         [JsonConverter(typeof(StringEnumConverter), true)] // camelCase string
         public UnitType Type { get; set; }
 
+        /// <summary>Formation size. Independent of <see cref="Type"/> — any type may exist at any size.</summary>
+        [JsonProperty("echelon")]
+        [JsonConverter(typeof(StringEnumConverter), true)]
+        public Echelon Echelon { get; set; } = Echelon.Company;
+
         /// <summary>World position (continuous). Tile (i,j) is centred at (i,j).</summary>
         [JsonProperty("x")]
         public double X { get; set; }
@@ -50,8 +55,13 @@ namespace Tactix.Core
         [JsonProperty("hasSupported")]
         public bool HasSupported { get; set; }
 
+        /// <summary>Stats for this unit's type scaled to its echelon.</summary>
         [JsonIgnore]
-        public UnitStats Stats => UnitStats.For(Type);
+        public UnitStats Stats => UnitStats.For(Type, Echelon);
+
+        /// <summary>Full name as it appears in the UI, e.g. "Armor Battalion".</summary>
+        [JsonIgnore]
+        public string FormationName => $"{Type} {EchelonScale.DisplayName(Echelon)}";
 
         public Unit Clone()
         {

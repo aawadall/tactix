@@ -39,7 +39,7 @@ namespace Tactix.Game
         /// west whose far side is a cliff. A sample enemy and a wounded comrade
         /// are placed so the unit's real attack and support options light up.
         /// </summary>
-        public static GameState BuildDemoState(UnitType type)
+        public static GameState BuildDemoState(UnitType type, Echelon echelon = Echelon.Company)
         {
             var terrain = new TerrainType[BoardHeight][];
             var elevation = new int[BoardHeight][];
@@ -74,15 +74,15 @@ namespace Tactix.Game
                 TurnNumber = 1,
             };
 
-            var stats = UnitStats.For(type);
-            AddUnit(state, ShowcaseUnitId, 0, type, 7.0, 6.0);
+            var stats = UnitStats.For(type, echelon);
+            AddUnit(state, ShowcaseUnitId, 0, type, echelon, 7.0, 6.0);
 
             if (stats.CanAttack)
             {
                 // Inside reach, so the target ring shows on the demo board.
-                AddUnit(state, 1, 1, UnitType.Infantry, 7.0 + stats.AttackRange * 0.8, 6.0);
+                AddUnit(state, 1, 1, UnitType.Infantry, Echelon.Company, 7.0 + stats.AttackRange * 0.8, 6.0);
                 // Outside reach, to make the range circle's meaning obvious.
-                AddUnit(state, 2, 1, UnitType.Infantry, 7.0 + stats.AttackRange + 1.6, 6.9);
+                AddUnit(state, 2, 1, UnitType.Infantry, Echelon.Company, 7.0 + stats.AttackRange + 1.6, 6.9);
             }
 
             if (stats.CanSupport)
@@ -90,25 +90,26 @@ namespace Tactix.Game
                 var casualtyType = stats.Supports == SupportTarget.Vehicles
                     ? UnitType.Armor
                     : UnitType.Infantry;
-                AddUnit(state, 3, 0, casualtyType,
+                AddUnit(state, 3, 0, casualtyType, Echelon.Company,
                     7.0 + stats.SupportRange * 0.7, 6.0 + stats.SupportRange * 0.4,
                     hp: 1);
-                AddUnit(state, 4, 1, UnitType.Infantry, 13.5, 3.2); // a nearby threat
+                AddUnit(state, 4, 1, UnitType.Infantry, Echelon.Company, 13.5, 3.2); // a nearby threat
             }
 
             return state;
         }
 
-        private static void AddUnit(GameState state, int id, int owner, UnitType type, double x, double y, int? hp = null)
+        private static void AddUnit(GameState state, int id, int owner, UnitType type, Echelon echelon, double x, double y, int? hp = null)
         {
             state.Units.Add(new Unit
             {
                 Id = id,
                 Owner = owner,
                 Type = type,
+                Echelon = echelon,
                 X = x,
                 Y = y,
-                Hp = hp ?? UnitStats.For(type).MaxHp,
+                Hp = hp ?? UnitStats.For(type, echelon).MaxHp,
             });
         }
 

@@ -209,11 +209,14 @@ namespace Tactix.Game
                 bool exhausted = unit.Owner == state.CurrentPlayer && unit.HasAttacked;
                 Color tint = exhausted ? VisualAssets.ExhaustedMul : Color.white;
 
-                var sprite = VisualAssets.UnitSymbol(unit.Type, unit.Owner);
+                var sprite = VisualAssets.UnitSymbol(unit.Type, unit.Owner, unit.Echelon);
+                // Symbols grow with the formation they stand for.
+                float size = (float)EchelonScale.FootprintMultiplier(unit.Echelon);
                 var go = MakeSprite($"Unit {unit.Id}", sprite, tint,
-                    new Vector3((float)unit.X, (float)unit.Y - 0.06f, UnitZ), Vector3.one, 0f, UnitOrder);
+                    new Vector3((float)unit.X, (float)unit.Y - 0.06f * size, UnitZ),
+                    Vector3.one * size, 0f, UnitOrder);
 
-                var label = MakeLabel(unit.Hp.ToString(), new Vector3(0.33f, -0.20f, TextZ - UnitZ),
+                var label = MakeLabel(unit.Hp.ToString(), new Vector3(0.33f, -0.20f, (TextZ - UnitZ) / size),
                     Color.white, 0.075f, LabelOrder);
                 label.transform.SetParent(go.transform, false);
 

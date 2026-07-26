@@ -47,6 +47,7 @@ namespace Tactix.Core
                 Terrain = terrain,
                 Elevation = ToJagged(elevation, width, height),
                 Units = new List<Unit>(),
+                Ruleset = Ruleset.Standard,
                 CurrentPlayer = 0,
                 TurnPhase = TurnPhase.Move,
                 TurnNumber = 1,

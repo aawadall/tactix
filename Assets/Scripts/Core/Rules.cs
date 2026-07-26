@@ -252,16 +252,24 @@ namespace Tactix.Core
         /// Applies an action, returning the resulting state. The input state is not
         /// modified. Throws <see cref="IllegalActionException"/> if the action is not
         /// legal in the given state.
+        ///
+        /// Under a stochastic ruleset a random source is required: damage rolls and
+        /// movement shortfalls are drawn from it, in a fixed order, so that
+        /// recording the draws makes a game exactly replayable. Passing an
+        /// unnecessary source is harmless — it simply goes unused.
         /// </summary>
-        public static GameState Apply(GameState state, GameAction action)
+        public static GameState Apply(GameState state, GameAction action, IRandomSource rng = null)
         {
             if (state.Winner != null)
                 throw new IllegalActionException("Game is already over");
+            if (state.Ruleset != null && state.Ruleset.IsStochastic && rng == null)
+                throw new InvalidOperationException(
+                    "This ruleset resolves outcomes randomly; Apply needs an IRandomSource so the draws can be logged.");
 
             switch (action)
             {
-                case MoveAction move: return ApplyMove(state, move);
-                case AttackAction attack: return ApplyAttack(state, attack);
+                case MoveAction move: return ApplyMove(state, move, rng);
+                case AttackAction attack: return ApplyAttack(state, attack, rng);
                 case HealAction heal: return ApplyHeal(state, heal);
                 case EndTurnAction _: return ApplyEndTurn(state);
                 default:
@@ -269,20 +277,53 @@ namespace Tactix.Core
             }
         }
 
-        private static GameState ApplyMove(GameState state, MoveAction move)
+        private static GameState ApplyMove(GameState state, MoveAction move, IRandomSource rng)
         {
             if (!IsLegalMoveTarget(state, move.UnitId, move.TargetX, move.TargetY))
                 throw new IllegalActionException($"Illegal move: {move}");
 
             var next = state.Clone();
             var unit = next.GetUnit(move.UnitId);
-            unit.X = move.TargetX;
-            unit.Y = move.TargetY;
+            var (x, y) = ResolveMoveDestination(next, unit, move.TargetX, move.TargetY, rng);
+            unit.X = x;
+            unit.Y = y;
             unit.HasMoved = true;
             return next;
         }
 
-        private static GameState ApplyAttack(GameState state, AttackAction attack)
+        /// <summary>
+        /// Where a formation actually ends up. Small units arrive exactly where
+        /// ordered; larger ones may fall short by up to their friction fraction,
+        /// stopping early along the same heading. The shortfall is only applied
+        /// where it leaves a legal position — a formation never grinds to a halt
+        /// inside another unit.
+        /// </summary>
+        private static (double x, double y) ResolveMoveDestination(
+            GameState state, Unit unit, double targetX, double targetY, IRandomSource rng)
+        {
+            double friction = unit.Stats.MovementFriction;
+            if (rng == null || state.Ruleset == null || !state.Ruleset.MovementFriction || friction <= 0)
+                return (targetX, targetY);
+
+            double dx = targetX - unit.X, dy = targetY - unit.Y;
+            double ordered = Math.Sqrt(dx * dx + dy * dy);
+            if (ordered <= Geometry.Epsilon) return (targetX, targetY);
+
+            double shortfall = friction * rng.NextDouble();
+            double ux = dx / ordered, uy = dy / ordered;
+
+            // Walk back from the frictioned distance to the first legal stopping
+            // point; if none exists, the formation covers the full distance.
+            const double stepBack = 0.05;
+            for (double distance = ordered * (1.0 - shortfall); distance > Geometry.Epsilon; distance -= stepBack)
+            {
+                double px = unit.X + ux * distance, py = unit.Y + uy * distance;
+                if (IsLegalMoveTarget(state, unit.Id, px, py)) return (px, py);
+            }
+            return (targetX, targetY);
+        }
+
+        private static GameState ApplyAttack(GameState state, AttackAction attack, IRandomSource rng)
         {
             bool legal = GetLegalAttacks(state, attack.UnitId)
                 .Any(a => a.TargetUnitId == attack.TargetUnitId);
@@ -298,7 +339,8 @@ namespace Tactix.Core
 
             int defense = next.TerrainAtPoint(target.X, target.Y) == TerrainType.Forest ? 1 : 0;
             int highGround = next.ElevationAtPoint(attacker.X, attacker.Y) > next.ElevationAtPoint(target.X, target.Y) ? 1 : 0;
-            int damage = Math.Max(0, attacker.Stats.AttackPower + highGround - defense);
+            int power = RollDamage(next, attacker, rng);
+            int damage = Math.Max(0, power + highGround - defense);
             target.Hp -= damage;
             attacker.Xp += 1; // display-only
 
@@ -310,6 +352,25 @@ namespace Tactix.Core
                     next.Winner = attacker.Owner;
             }
             return next;
+        }
+
+        /// <summary>
+        /// The damage a formation actually inflicts. Small units deal their exact
+        /// attack power; larger ones are abstractions over many separate
+        /// engagements, so their output is drawn uniformly from a spread that
+        /// widens with size.
+        /// </summary>
+        private static int RollDamage(GameState state, Unit attacker, IRandomSource rng)
+        {
+            int power = attacker.Stats.AttackPower;
+            int spread = attacker.Stats.DamageSpread;
+            if (rng == null || state.Ruleset == null || !state.Ruleset.DamageVariance || spread <= 0)
+                return power;
+
+            int outcomes = 2 * spread + 1;
+            int roll = (int)(rng.NextDouble() * outcomes);
+            if (roll >= outcomes) roll = outcomes - 1; // guard against a draw of exactly 1.0
+            return Math.Max(0, power - spread + roll);
         }
 
         private static GameState ApplyHeal(GameState state, HealAction heal)

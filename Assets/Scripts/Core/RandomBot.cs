@@ -26,9 +26,18 @@ namespace Tactix.Core
         /// <summary>0 = pure uniform random, 1 = always advance on the nearest enemy.</summary>
         public double AdvanceBias { get; }
 
+        /// <summary>
+        /// Source for resolving outcomes under a stochastic ruleset. Kept separate
+        /// from the bot's own decision randomness so that replaying a game's logged
+        /// draws reproduces it regardless of which policy chose the actions.
+        /// </summary>
+        public IRandomSource OutcomeRandom { get; }
+
         public RandomBot(int? seed = null, double advanceBias = 0.6)
         {
-            _rng = seed.HasValue ? new Random(seed.Value) : new Random();
+            int resolved = seed ?? Environment.TickCount;
+            _rng = new Random(resolved);
+            OutcomeRandom = new SeededRandom(resolved ^ 0x5f3759df);
             AdvanceBias = advanceBias;
         }
 

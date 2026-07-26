@@ -71,9 +71,9 @@ namespace Tactix.Game
 
         // ---------- field manual ----------
 
-        public void ShowFieldManual(UnitType type, int page, int pageCount)
+        public void ShowFieldManual(UnitType type, Echelon echelon, int page, int pageCount)
         {
-            var s = UnitStats.For(type);
+            var s = UnitStats.For(type, echelon);
             _modePanel.SetActive(false);
             _winPanel.SetActive(false);
             _legendPanel.SetActive(false);
@@ -83,23 +83,34 @@ namespace Tactix.Game
             _banner.text = "";
 
             _manualPanel.SetActive(true);
-            _manualTitle.text = $"{VisualAssets.UnitDisplayName(type)}   ({page}/{pageCount})";
+            _manualTitle.text = $"{VisualAssets.UnitTypeName(type)} {EchelonScale.DisplayName(echelon)}   ({page}/{pageCount})";
 
             var stats = new StringBuilder();
-            stats.AppendLine($"Move {s.MoveRange:0.#}     HP {s.MaxHp}     Sight {s.Sight:0.#}");
+            stats.AppendLine($"Move {s.MoveRange:0.##}     HP {s.MaxHp}     Sight {s.Sight:0.##}");
             stats.AppendLine(s.CanAttack
-                ? $"Damage {s.AttackPower}     Range {s.AttackRange:0.#}{(s.RequiresLineOfSight ? "  (needs line of sight)" : "")}"
+                ? $"Damage {DamageText(s)}     Range {s.AttackRange:0.##}{(s.RequiresLineOfSight ? "  (needs LOS)" : "")}"
                 : "Unarmed");
             if (s.CanSupport)
             {
-                string treats = s.Supports == SupportTarget.Vehicles ? "vehicles" : "dismounted units";
-                stats.AppendLine($"Restores +{s.SupportPower} HP to {treats} at range {s.SupportRange:0.#}");
+                string treats = s.Supports == SupportTarget.Vehicles ? "vehicles" : "dismounted";
+                stats.AppendLine($"Restores +{s.SupportPower} HP to {treats} at range {s.SupportRange:0.##}");
             }
-            stats.Append(s.IsVehicle ? "Classed as a vehicle" : "Classed as dismounted");
+            stats.AppendLine(s.IsVehicle ? "Classed as a vehicle" : "Classed as dismounted");
+            stats.Append(s.MovementFriction > 0
+                ? $"Order friction: may fall up to {s.MovementFriction * 100:0}% short of a move"
+                : "Moves exactly as ordered");
             _manualStats.text = stats.ToString();
 
             _manualBody.text = FieldManual.Description(type);
             _manualKey.text = FieldManual.OverlayKey;
+        }
+
+        /// <summary>Shows a damage roll as "5" when exact, or "5 ±2  (3-7)" when it varies.</summary>
+        private static string DamageText(UnitStats s)
+        {
+            if (s.DamageSpread <= 0) return s.AttackPower.ToString();
+            int low = Mathf.Max(0, s.AttackPower - s.DamageSpread);
+            return $"{s.AttackPower} ±{s.DamageSpread}  ({low}-{s.AttackPower + s.DamageSpread})";
         }
 
         public void HideFieldManual()
@@ -139,19 +150,19 @@ namespace Tactix.Game
         {
             var s = unit.Stats;
             var sb = new StringBuilder();
-            sb.AppendLine($"{VisualAssets.UnitDisplayName(unit.Type)}");
+            sb.AppendLine($"{VisualAssets.UnitDisplayName(unit.Type, unit.Echelon)}");
             sb.AppendLine($"Player {unit.Owner + 1} ({PlayerName(unit.Owner)})");
             sb.AppendLine($"Health {unit.Hp}/{s.MaxHp}    XP {unit.Xp}");
             sb.AppendLine($"Position ({unit.X:0.0}, {unit.Y:0.0})    Elevation {state.ElevationAtPoint(unit.X, unit.Y)}");
             sb.AppendLine(s.CanAttack
-                ? $"Damage {s.AttackPower}    Range {s.AttackRange:0.#}{(s.RequiresLineOfSight ? " (LOS)" : "")}"
+                ? $"Damage {DamageText(s)}    Range {s.AttackRange:0.##}{(s.RequiresLineOfSight ? " (LOS)" : "")}"
                 : "Unarmed");
             if (s.CanSupport)
             {
                 string treats = s.Supports == SupportTarget.Vehicles ? "vehicles" : "dismounted";
-                sb.AppendLine($"Restores +{s.SupportPower} HP    Range {s.SupportRange:0.#}  ({treats})");
+                sb.AppendLine($"Restores +{s.SupportPower} HP    Range {s.SupportRange:0.##}  ({treats})");
             }
-            sb.AppendLine($"Move {s.MoveRange:0.#}    Sight {s.Sight:0.#}");
+            sb.AppendLine($"Move {s.MoveRange:0.##}    Sight {s.Sight:0.##}");
 
             var notes = new StringBuilder();
             if (state.TerrainAtPoint(unit.X, unit.Y) == TerrainType.Forest) notes.Append("In forest: +1 defense.  ");
@@ -321,7 +332,7 @@ namespace Tactix.Game
                     role = $"Range {s.AttackRange:0.#}{los}  •  Damage {s.AttackPower}";
                 }
                 var row = MakeText(_legendPanel.transform, $"Row {type}",
-                    $"{VisualAssets.UnitDisplayName(type)}\nMove {s.MoveRange:0.#}  •  {role}  •  HP {s.MaxHp}  •  Sight {s.Sight:0.#}",
+                    $"{VisualAssets.UnitTypeName(type)}  (company scale)\nMove {s.MoveRange:0.#}  •  {role}  •  HP {s.MaxHp}  •  Sight {s.Sight:0.#}",
                     16, TextAnchor.MiddleLeft);
                 Anchor(row.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(20, y), new Vector2(740, 48));
             }
@@ -400,7 +411,7 @@ namespace Tactix.Game
             var back = MakeButton(card.transform, "Back", () => _game.CloseFieldManual(), new Color(0.32f, 0.32f, 0.38f));
             Anchor(back.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(278, 74), new Vector2(120, 44));
 
-            var hint = MakeText(card.transform, "Hint", "← → to browse   •   Esc to go back", 14, TextAnchor.UpperLeft);
+            var hint = MakeText(card.transform, "Hint", "← → branch   •   ↑ ↓ formation size   •   Esc to go back", 14, TextAnchor.UpperLeft);
             hint.color = new Color(0.7f, 0.7f, 0.75f);
             Anchor(hint.rectTransform, new Vector2(0f, 0f), new Vector2(22, 44), new Vector2(380, 22));
 

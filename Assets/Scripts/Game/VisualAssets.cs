@@ -25,27 +25,31 @@ namespace Tactix.Game
         public static readonly Color ContourColor = new Color(0.36f, 0.24f, 0.11f);
         public static readonly Color ElevationDigitColor = new Color(0.30f, 0.19f, 0.07f, 0.85f);
 
-        /// <summary>Display names used by the legend and telemetry, matching the symbology.</summary>
-        public static string UnitDisplayName(UnitType type)
+        /// <summary>The branch name alone, without a size ("Infantry", "Medical").</summary>
+        public static string UnitTypeName(UnitType type)
         {
             switch (type)
             {
-                case UnitType.Infantry: return "Infantry Company";
-                case UnitType.MechInfantry: return "Mechanized Company";
-                case UnitType.Armor: return "Armor Company";
-                case UnitType.Artillery: return "Artillery Battery";
-                case UnitType.Recon: return "Recon Troop";
-                case UnitType.Medic: return "Medical Section";
-                case UnitType.Service: return "Service Company";
+                case UnitType.Infantry: return "Infantry";
+                case UnitType.MechInfantry: return "Mechanized";
+                case UnitType.Armor: return "Armor";
+                case UnitType.Artillery: return "Artillery";
+                case UnitType.Recon: return "Recon";
+                case UnitType.Medic: return "Medical";
+                case UnitType.Service: return "Service";
                 default: return type.ToString();
             }
         }
 
+        /// <summary>Full formation name as shown in the UI, e.g. "Armor Brigade".</summary>
+        public static string UnitDisplayName(UnitType type, Echelon echelon = Echelon.Company) =>
+            $"{UnitTypeName(type)} {EchelonScale.DisplayName(echelon)}";
+
         private static Sprite _square;
         private static Sprite _ring;
         private static Material _shapeMaterial;
-        private static readonly Dictionary<(UnitType, int), Sprite> _symbols =
-            new Dictionary<(UnitType, int), Sprite>();
+        private static readonly Dictionary<(UnitType, int, Echelon), Sprite> _symbols =
+            new Dictionary<(UnitType, int, Echelon), Sprite>();
 
         /// <summary>Unlit transparent material for procedural meshes (move region).</summary>
         public static Material ShapeMaterial
@@ -111,9 +115,9 @@ namespace Tactix.Game
         /// circle), company echelon bar above the frame.
         /// 120x100 px at 150 ppu -> 0.8 x 0.67 world units.
         /// </summary>
-        public static Sprite UnitSymbol(UnitType type, int player)
+        public static Sprite UnitSymbol(UnitType type, int player, Echelon echelon = Echelon.Company)
         {
-            if (_symbols.TryGetValue((type, player), out var cached)) return cached;
+            if (_symbols.TryGetValue((type, player, echelon), out var cached)) return cached;
 
             const int w = 120, h = 100;
             var px = new Color32[w * h];
@@ -167,15 +171,59 @@ namespace Tactix.Game
                     break;
             }
 
-            // Company echelon: single vertical bar above the frame.
-            FillRect(px, w, 57, 78, 63, 96, white);
+            DrawEchelonMarking(px, w, h, echelon, white, fill);
 
             var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
             tex.SetPixels32(px);
             tex.Apply();
             var sprite = Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 150f);
-            _symbols[(type, player)] = sprite;
+            _symbols[(type, player, echelon)] = sprite;
             return sprite;
+        }
+
+        /// <summary>
+        /// The NATO echelon marking above the frame: a ring for a fire team, one
+        /// to three dots up to platoon, one to three bars up to regiment, then one
+        /// to six crosses from brigade to theatre.
+        /// </summary>
+        private static void DrawEchelonMarking(Color32[] px, int w, int h, Echelon echelon, Color32 ink, Color32 fill)
+        {
+            var (mark, count) = EchelonScale.Marking(echelon);
+            const int centreY = 86;
+
+            int glyphWidth, gap;
+            switch (mark)
+            {
+                case EchelonMark.Ring: glyphWidth = 18; gap = 0; break;
+                case EchelonMark.Dot: glyphWidth = 12; gap = 6; break;
+                case EchelonMark.Bar: glyphWidth = 6; gap = 9; break;
+                default: glyphWidth = 14; gap = 3; break; // Cross
+            }
+
+            int totalWidth = count * glyphWidth + (count - 1) * gap;
+            int left = (w - totalWidth) / 2;
+
+            for (int i = 0; i < count; i++)
+            {
+                int centreX = left + i * (glyphWidth + gap) + glyphWidth / 2;
+                switch (mark)
+                {
+                    case EchelonMark.Ring:
+                        FillCircle(px, w, h, centreX, centreY, 9, ink);
+                        FillCircle(px, w, h, centreX, centreY, 5, fill);
+                        break;
+                    case EchelonMark.Dot:
+                        FillCircle(px, w, h, centreX, centreY, 6, ink);
+                        break;
+                    case EchelonMark.Bar:
+                        FillRect(px, w, centreX - 3, centreY - 10, centreX + 3, centreY + 10, ink);
+                        break;
+                    case EchelonMark.Cross:
+                        DrawThickLine(px, w, h, centreX - 6, centreY - 8, centreX + 6, centreY + 8, 2, ink);
+                        DrawThickLine(px, w, h, centreX - 6, centreY + 8, centreX + 6, centreY - 8, 2, ink);
+                        break;
+                }
+            }
         }
 
         public static Font UiFont => Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");

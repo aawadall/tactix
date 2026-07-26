@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Tactix.Core
 {
@@ -33,6 +34,22 @@ namespace Tactix.Core
 
         public bool CanAttack => AttackPower > 0 && AttackRange > 0;
         public bool CanSupport => SupportPower > 0 && Supports != SupportTarget.None;
+
+        /// <summary>
+        /// Half-width of this unit's damage roll: damage lands uniformly in
+        /// [power - spread, power + spread]. Zero for small formations, which
+        /// resolve exactly.
+        /// </summary>
+        public int DamageSpread { get; private set; }
+
+        /// <summary>
+        /// Worst-case fraction of an ordered move this unit may fail to cover.
+        /// Zero for small formations, which go exactly where they are sent.
+        /// </summary>
+        public double MovementFriction { get; private set; }
+
+        /// <summary>The size this profile has been scaled to.</summary>
+        public Echelon Echelon { get; private set; } = Echelon.Company;
 
         private UnitStats(
             double moveRange, double attackRange, int attackPower, int maxHp, double sight, double radius,
@@ -89,6 +106,7 @@ namespace Tactix.Core
             UnitType.Recon, UnitType.Medic, UnitType.Service,
         };
 
+        /// <summary>The company-scale reference profile for a unit type.</summary>
         public static UnitStats For(UnitType type)
         {
             switch (type)
@@ -102,6 +120,58 @@ namespace Tactix.Core
                 case UnitType.Service: return Service;
                 default: throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown unit type");
             }
+        }
+
+        private static readonly Dictionary<(UnitType, Echelon), UnitStats> ScaledCache =
+            new Dictionary<(UnitType, Echelon), UnitStats>();
+
+        /// <summary>
+        /// The profile for a unit type at a given size. Company scale returns the
+        /// reference profile unchanged; every other size scales it through
+        /// <see cref="EchelonScale"/>. Results are cached — profiles are immutable.
+        /// </summary>
+        public static UnitStats For(UnitType type, Echelon echelon)
+        {
+            lock (ScaledCache)
+            {
+                if (ScaledCache.TryGetValue((type, echelon), out var cached)) return cached;
+                var scaled = Scale(For(type), echelon);
+                ScaledCache[(type, echelon)] = scaled;
+                return scaled;
+            }
+        }
+
+        private static UnitStats Scale(UnitStats baseStats, Echelon echelon)
+        {
+            double strength = EchelonScale.StrengthMultiplier(echelon);
+            int attackPower = ScaleWhole(baseStats.AttackPower, strength);
+
+            var scaled = new UnitStats(
+                moveRange: baseStats.MoveRange * EchelonScale.MobilityMultiplier(echelon),
+                attackRange: baseStats.AttackRange * EchelonScale.ReachMultiplier(echelon),
+                attackPower: attackPower,
+                maxHp: ScaleWhole(baseStats.MaxHp, strength),
+                sight: baseStats.Sight * EchelonScale.VisionMultiplier(echelon),
+                radius: baseStats.Radius * EchelonScale.FootprintMultiplier(echelon),
+                requiresLineOfSight: baseStats.RequiresLineOfSight,
+                isVehicle: baseStats.IsVehicle,
+                supportPower: ScaleWhole(baseStats.SupportPower, strength),
+                supportRange: baseStats.SupportRange * EchelonScale.ReachMultiplier(echelon),
+                supports: baseStats.Supports)
+            {
+                Echelon = echelon,
+                MovementFriction = EchelonScale.MovementFrictionOf(echelon),
+            };
+            scaled.DamageSpread = (int)Math.Round(
+                attackPower * EchelonScale.DamageSpreadOf(echelon), MidpointRounding.AwayFromZero);
+            return scaled;
+        }
+
+        /// <summary>Scales a whole-number stat, never rounding a real capability away to nothing.</summary>
+        private static int ScaleWhole(int value, double multiplier)
+        {
+            if (value <= 0) return 0;
+            return Math.Max(1, (int)Math.Round(value * multiplier, MidpointRounding.AwayFromZero));
         }
 
         /// <summary>True when a unit of <paramref name="targetType"/> is treatable by this supporter.</summary>

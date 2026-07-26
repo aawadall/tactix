@@ -43,3 +43,6 @@ Thumbs.db
 # Game data logs (training data output)
 /logs/
 /TestResults/
+
+# Research data
+/resources/

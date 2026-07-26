@@ -36,6 +36,11 @@ namespace Tactix.Game
 
         private int? _mapSeed;
         private int _manualTypeIndex;
+        private int _manualEchelonIndex = (int)Echelon.Company;
+
+        /// <summary>Records the draws the rules engine consumes, so each step can log them.</summary>
+        private RecordingRandom _outcomes;
+        private int _rngSeed;
 
         private BoardRenderer _board;
         private InputController _input;
@@ -158,8 +163,11 @@ namespace Tactix.Game
                 State = LevelConfig.CreateStandardGame();
             }
 
+            _rngSeed = Random.Range(int.MinValue, int.MaxValue);
+            _outcomes = new RecordingRandom(new SeededRandom(_rngSeed));
+
             _bot = mode == GameMode.Hotseat ? null : new RandomBot();
-            _logger = new GameLogger(LogDirectory, ModeString(mode), State, _mapSeed);
+            _logger = new GameLogger(LogDirectory, ModeString(mode), State, _mapSeed, _rngSeed);
 
             FrameBoard();
             _board.BuildTerrain(State);
@@ -183,9 +191,10 @@ namespace Tactix.Game
             if (!GameStarted || State.Winner != null) return false;
 
             GameState next;
+            _outcomes.Reset();
             try
             {
-                next = Rules.Apply(State, action);
+                next = Rules.Apply(State, action, _outcomes);
             }
             catch (IllegalActionException e)
             {
@@ -193,7 +202,7 @@ namespace Tactix.Game
                 return false;
             }
 
-            _logger.LogStep(State, action, next);
+            _logger.LogStep(State, action, next, _outcomes.Draws);
             State = next;
 
             if (State.Winner != null)
@@ -273,6 +282,8 @@ namespace Tactix.Game
             {
                 if (Input.GetKeyDown(KeyCode.RightArrow)) CycleFieldManual(1);
                 if (Input.GetKeyDown(KeyCode.LeftArrow)) CycleFieldManual(-1);
+                if (Input.GetKeyDown(KeyCode.UpArrow)) CycleFieldManualEchelon(1);
+                if (Input.GetKeyDown(KeyCode.DownArrow)) CycleFieldManualEchelon(-1);
                 if (Input.GetKeyDown(KeyCode.Escape)) CloseFieldManual();
                 return;
             }
@@ -310,6 +321,15 @@ namespace Tactix.Game
             RenderFieldManualPage();
         }
 
+        /// <summary>Steps the demonstrated unit up or down the echelon ladder.</summary>
+        public void CycleFieldManualEchelon(int delta)
+        {
+            if (!InFieldManual) return;
+            int count = EchelonScale.All.Length;
+            _manualEchelonIndex = Mathf.Clamp(_manualEchelonIndex + delta, 0, count - 1);
+            RenderFieldManualPage();
+        }
+
         public void CloseFieldManual()
         {
             InFieldManual = false;
@@ -322,7 +342,8 @@ namespace Tactix.Game
         private void RenderFieldManualPage()
         {
             var type = UnitStats.AllTypes[_manualTypeIndex];
-            State = FieldManual.BuildDemoState(type);
+            var echelon = EchelonScale.All[_manualEchelonIndex];
+            State = FieldManual.BuildDemoState(type, echelon);
             FrameBoard();
             _board.BuildTerrain(State);
             _board.RenderUnits(State);
@@ -337,7 +358,7 @@ namespace Tactix.Game
             _board.SetSelection(subject, attackTargets, healTargets);
             _board.SetCapabilityRings(subject);
 
-            _ui.ShowFieldManual(type, _manualTypeIndex + 1, UnitStats.AllTypes.Length);
+            _ui.ShowFieldManual(type, echelon, _manualTypeIndex + 1, UnitStats.AllTypes.Length);
         }
 
         /// <summary>Toggles between the fixed standard map and freshly generated ones.</summary>

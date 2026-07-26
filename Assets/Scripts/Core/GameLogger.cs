@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using Newtonsoft.Json;
@@ -15,7 +16,7 @@ namespace Tactix.Core
     /// </summary>
     public sealed class GameLogger : IDisposable
     {
-        public const int SchemaVersion = 6;
+        public const int SchemaVersion = 7;
 
         private readonly StreamWriter _writer;
         private int _stepCount;
@@ -28,7 +29,7 @@ namespace Tactix.Core
         /// generate the map, or null for the fixed standard map — recording it keeps
         /// every logged game reproducible.
         /// </summary>
-        public GameLogger(string directory, string mode, GameState initialState, int? mapSeed = null)
+        public GameLogger(string directory, string mode, GameState initialState, int? mapSeed = null, int? rngSeed = null)
         {
             Directory.CreateDirectory(directory);
             string stamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
@@ -43,11 +44,17 @@ namespace Tactix.Core
                 Mode = mode,
                 MapSource = mapSeed.HasValue ? "generated" : "standard",
                 MapSeed = mapSeed,
+                RngSeed = rngSeed,
                 InitialState = initialState,
             });
         }
 
-        public void LogStep(GameState stateBefore, GameAction action, GameState stateAfter)
+        /// <summary>
+        /// Records one applied action. <paramref name="rngDraws"/> are the random
+        /// values the rules engine consumed resolving it, in order — replaying
+        /// them through <see cref="ReplayRandom"/> reproduces the step exactly.
+        /// </summary>
+        public void LogStep(GameState stateBefore, GameAction action, GameState stateAfter, IReadOnlyList<double> rngDraws = null)
         {
             if (_resultWritten) throw new InvalidOperationException("Game already ended");
             WriteLine(new StepLine
@@ -56,6 +63,7 @@ namespace Tactix.Core
                 Player = stateBefore.CurrentPlayer,
                 StateBefore = stateBefore,
                 Action = action,
+                RngDraws = rngDraws != null && rngDraws.Count > 0 ? new List<double>(rngDraws) : null,
                 StateAfter = stateAfter,
             });
         }
@@ -92,6 +100,7 @@ namespace Tactix.Core
             [JsonProperty("mode")] public string Mode { get; set; }
             [JsonProperty("mapSource")] public string MapSource { get; set; }
             [JsonProperty("mapSeed")] public int? MapSeed { get; set; }
+            [JsonProperty("rngSeed")] public int? RngSeed { get; set; }
             [JsonProperty("initialState")] public GameState InitialState { get; set; }
         }
 
@@ -102,6 +111,7 @@ namespace Tactix.Core
             [JsonProperty("player")] public int Player { get; set; }
             [JsonProperty("stateBefore")] public GameState StateBefore { get; set; }
             [JsonProperty("action")] public GameAction Action { get; set; }
+            [JsonProperty("rngDraws", NullValueHandling = NullValueHandling.Ignore)] public List<double> RngDraws { get; set; }
             [JsonProperty("stateAfter")] public GameState StateAfter { get; set; }
         }
 
