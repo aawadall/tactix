@@ -9,6 +9,22 @@
 [Mm]emoryCaptures/
 [Rr]ecordings/
 
+[Ee]xportedObj/
+Assets/AssetStoreTools*
+
+# Build artifacts and debug symbols
+*.apk
+*.aab
+*.unitypackage
+*.app
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+*.pidb.meta
+crashlytics-build.properties
+sysinfo.txt
+
 # Never ignore Assets meta files
 !/[Aa]ssets/**/*.meta
 
