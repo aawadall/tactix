@@ -19,6 +19,7 @@ namespace Tactix.Game
         private BoardRenderer _board;
         private int? _selectedUnitId;
         private List<AttackAction> _legalAttacks = new List<AttackAction>();
+        private List<HealAction> _legalHeals = new List<HealAction>();
 
         public void Init(GameController game, BoardRenderer board)
         {
@@ -53,6 +54,17 @@ namespace Tactix.Game
             {
                 var attack = _legalAttacks.FirstOrDefault(a => a.TargetUnitId == clickedUnit.Id);
                 if (attack != null && _game.TrySubmitAction(attack))
+                {
+                    RefreshSelection();
+                    return;
+                }
+            }
+
+            // Treat a ringed casualty (medic/service company).
+            if (_selectedUnitId.HasValue && clickedUnit != null && clickedUnit.Owner == state.CurrentPlayer)
+            {
+                var heal = _legalHeals.FirstOrDefault(h => h.TargetUnitId == clickedUnit.Id);
+                if (heal != null && _game.TrySubmitAction(heal))
                 {
                     RefreshSelection();
                     return;
@@ -106,6 +118,7 @@ namespace Tactix.Game
         {
             _selectedUnitId = null;
             _legalAttacks.Clear();
+            _legalHeals.Clear();
             if (_board != null) _board.ClearHighlights();
             if (_game != null && _game.Ui != null) _game.Ui.HideTelemetry();
         }
@@ -121,12 +134,16 @@ namespace Tactix.Game
             }
 
             _legalAttacks = Rules.GetLegalAttacks(state, unit.Id);
+            _legalHeals = Rules.GetLegalHeals(state, unit.Id);
             var targets = _legalAttacks
                 .Select(a => state.GetUnit(a.TargetUnitId))
                 .Where(t => t != null);
+            var casualties = _legalHeals
+                .Select(h => state.GetUnit(h.TargetUnitId))
+                .Where(t => t != null);
 
             _board.SetMoveRegion(unit, Rules.GetMoveRegion(state, unit.Id));
-            _board.SetSelection(unit, targets);
+            _board.SetSelection(unit, targets, casualties);
             _game.Ui.ShowTelemetry(unit, state);
         }
     }

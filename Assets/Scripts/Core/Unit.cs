@@ -42,6 +42,14 @@ namespace Tactix.Core
         [JsonProperty("hasAttacked")]
         public bool HasAttacked { get; set; }
 
+        /// <summary>
+        /// Whether this unit has used its support action (heal/repair) this turn.
+        /// Support has its own slot: it neither consumes the attack nor ends the
+        /// army's movement phase.
+        /// </summary>
+        [JsonProperty("hasSupported")]
+        public bool HasSupported { get; set; }
+
         [JsonIgnore]
         public UnitStats Stats => UnitStats.For(Type);
 

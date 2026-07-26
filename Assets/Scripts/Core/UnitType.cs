@@ -2,7 +2,7 @@ namespace Tactix.Core
 {
     /// <summary>
     /// Unit archetypes. Serialized as camelCase strings ("infantry",
-    /// "mechInfantry", "armor", "artillery", "recon") in the state JSON.
+    /// "mechInfantry", "armor", "artillery", "recon", "medic", "service").
     /// </summary>
     public enum UnitType
     {
@@ -11,5 +11,9 @@ namespace Tactix.Core
         Armor = 2,
         Artillery = 3,
         Recon = 4,
+        /// <summary>Medical section: heals dismounted units, unarmed.</summary>
+        Medic = 5,
+        /// <summary>Maintenance/service company: repairs vehicles, unarmed.</summary>
+        Service = 6,
     }
 }

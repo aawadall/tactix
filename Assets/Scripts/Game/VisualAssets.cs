@@ -20,6 +20,7 @@ namespace Tactix.Game
         public static readonly Color MoveTint = new Color(0.25f, 0.85f, 0.95f, 0.38f);
         public static readonly Color MoveTintEdge = new Color(0.25f, 0.85f, 0.95f, 0.16f);
         public static readonly Color AttackTint = new Color(1f, 0.20f, 0.15f, 0.95f);
+        public static readonly Color HealTint = new Color(0.30f, 0.95f, 0.45f, 0.95f);
         public static readonly Color ExhaustedMul = new Color(0.55f, 0.55f, 0.55f);
         public static readonly Color ContourColor = new Color(0.36f, 0.24f, 0.11f);
         public static readonly Color ElevationDigitColor = new Color(0.30f, 0.19f, 0.07f, 0.85f);
@@ -34,6 +35,8 @@ namespace Tactix.Game
                 case UnitType.Armor: return "Armor Company";
                 case UnitType.Artillery: return "Artillery Battery";
                 case UnitType.Recon: return "Recon Troop";
+                case UnitType.Medic: return "Medical Section";
+                case UnitType.Service: return "Service Company";
                 default: return type.ToString();
             }
         }
@@ -148,6 +151,19 @@ namespace Tactix.Game
                 case UnitType.Recon:
                     // Cavalry/recon slash, lower-left to upper-right.
                     DrawThickLine(px, w, h, 11, 11, 108, 66, 3, white);
+                    break;
+                case UnitType.Medic:
+                    // Medical: upright Geneva cross.
+                    FillRect(px, w, 53, 21, 67, 57, white);
+                    FillRect(px, w, 42, 32, 78, 46, white);
+                    break;
+                case UnitType.Service:
+                    // Maintenance: open-ended wrench.
+                    DrawThickLine(px, w, h, 42, 26, 78, 52, 4, white);
+                    FillCircle(px, w, h, 38, 23, 11, white);
+                    FillCircle(px, w, h, 38, 23, 5, fill);   // jaw opening
+                    FillRect(px, w, 30, 15, 44, 24, fill);   // open the jaw downward
+                    FillCircle(px, w, h, 82, 55, 10, white);
                     break;
             }
 

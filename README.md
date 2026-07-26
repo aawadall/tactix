@@ -79,8 +79,9 @@ contours mark cliffs.
     forest canopy, +3 for impassable walls — reaches the line over the
     crossing. Units on hills shoot over valley forests; hills block shots
     between valleys. On flat ground this reduces exactly to the old rule.
-- 2 players × 12 units (3 Infantry, 3 Mechanized Infantry, 2 Armor, 3 Artillery,
-  1 Recon). All distances are Euclidean world units (a tile is 1x1):
+- 2 players × 14 units (3 Infantry, 3 Mechanized Infantry, 2 Armor, 3 Artillery,
+  1 Recon, 1 Medic, 1 Service). All distances are Euclidean world units (a tile
+  is 1x1):
 
   | Type | Move | Range | Damage | HP | Sight | Radius | Needs LOS |
   |---|---|---|---|---|---|---|---|
@@ -89,6 +90,17 @@ contours mark cliffs.
   | Armor | 4.0 | 1.5 | 4 | 8 | 3 | 0.40 | no |
   | Artillery | 2.0 | 5.0 | 3 | 3 | 3 | 0.35 | yes |
   | Recon | 6.0 | 1.0 | 1 | 3 | 8 | 0.30 | no |
+  | Medic | 4.0 | — | unarmed | 4 | 4 | 0.30 | — |
+  | Service | 2.5 | — | unarmed | 6 | 3 | 0.40 | — |
+
+- **Support units** are unarmed and restore HP to friendlies, split by role:
+  the Medical Section heals *dismounted* units (Infantry, Mech Infantry, Recon,
+  Medic) for +2 HP at range 1.5; the Service Company repairs *vehicles* (Armor,
+  Artillery, Service) for +3 HP at range 1.2. Neither can treat itself, healing
+  is capped at the target's max HP, and a full-strength unit is not a legal
+  target. Support uses **its own per-turn slot** (`hasSupported`): a support
+  unit can move and heal in the same turn, and healing never flips the army
+  into the attack phase — so a medic working doesn't freeze everyone's advance.
 
   Units are solid bodies: two units must stay at least the sum of their radii
   apart, so a destination that would overlap someone is illegal.
@@ -114,7 +126,7 @@ contours mark cliffs.
   forest), floored at 0; no counterattacks. A unit at 0 HP is removed;
   eliminating all enemy units wins.
 
-## Data schemas (schemaVersion 4)
+## Data schemas (schemaVersion 5)
 
 Everything below is produced by `Tactix.Core` via Newtonsoft.Json and is the
 contract for the future imitation-learning pipeline. **Schema stability matters
@@ -128,8 +140,10 @@ more than anything else here** — change nothing without bumping
   "terrain": [[0,0,1,2,0,0,0,0], ...],
   "elevation": [[0,0,1,2,2,1,0,0], ...],
   "units": [
-    {"id":0,"owner":0,"type":"infantry","x":6.0,"y":2.0,"hp":5,"xp":0,"hasMoved":false,"hasAttacked":false},
-    {"id":9,"owner":0,"type":"artillery","x":9.5,"y":0.0,"hp":3,"xp":0,"hasMoved":false,"hasAttacked":false}
+    {"id":0,"owner":0,"type":"infantry","x":6.0,"y":2.0,"hp":5,"xp":0,
+     "hasMoved":false,"hasAttacked":false,"hasSupported":false},
+    {"id":12,"owner":0,"type":"medic","x":7.5,"y":1.0,"hp":4,"xp":0,
+     "hasMoved":false,"hasAttacked":false,"hasSupported":false}
   ],
   "currentPlayer": 0,
   "turnPhase": "move",
@@ -142,7 +156,7 @@ more than anything else here** — change nothing without bumping
 |---|---|
 | `terrain` | rows of columns, `terrain[y][x]`; codes: `0` open, `1` forest, `2` impassable. Board size is implied by the array — never fixed. |
 | `elevation` | rows of columns, same shape as `terrain`; whole levels (0–3 on the standard map). Drives cliffs, high-ground bonus, and 3D line of sight. |
-| `units` | variable-length entity list; `x`/`y` are **floating-point world coordinates**; `type` is `"infantry"` \| `"mechInfantry"` \| `"armor"` \| `"artillery"` \| `"recon"`; `xp` is +1 per attack, +2 more per kill (no gameplay effect yet); ids are stable for the whole game; dead units are removed from the list. Per-type constants (range, radius, …) live in `UnitStats`, not in the state. |
+| `units` | variable-length entity list; `x`/`y` are **floating-point world coordinates**; `type` is `"infantry"` \| `"mechInfantry"` \| `"armor"` \| `"artillery"` \| `"recon"` \| `"medic"` \| `"service"`; `xp` is +1 per attack or heal, +2 more per kill (no gameplay effect yet); `hasSupported` is the support unit's own per-turn slot, independent of `hasAttacked`; ids are stable for the whole game; dead units are removed from the list. Per-type constants (range, radius, support power, …) live in `UnitStats`, not in the state. |
 | `currentPlayer` | `0` or `1` |
 | `turnPhase` | `"move"` \| `"attack"` — first attack of a turn switches it; movement is only legal in `"move"`. |
 | `turnNumber` | 1-based ply counter, +1 on every end-turn. |

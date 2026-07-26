@@ -92,14 +92,26 @@ namespace Tactix.Game
             sb.AppendLine($"Player {unit.Owner + 1} ({PlayerName(unit.Owner)})");
             sb.AppendLine($"Health {unit.Hp}/{s.MaxHp}    XP {unit.Xp}");
             sb.AppendLine($"Position ({unit.X:0.0}, {unit.Y:0.0})    Elevation {state.ElevationAtPoint(unit.X, unit.Y)}");
-            sb.AppendLine($"Damage {s.AttackPower}    Range {s.AttackRange:0.#}{(s.RequiresLineOfSight ? " (LOS)" : "")}");
+            sb.AppendLine(s.CanAttack
+                ? $"Damage {s.AttackPower}    Range {s.AttackRange:0.#}{(s.RequiresLineOfSight ? " (LOS)" : "")}"
+                : "Unarmed");
+            if (s.CanSupport)
+            {
+                string treats = s.Supports == SupportTarget.Vehicles ? "vehicles" : "dismounted";
+                sb.AppendLine($"Restores +{s.SupportPower} HP    Range {s.SupportRange:0.#}  ({treats})");
+            }
             sb.AppendLine($"Move {s.MoveRange:0.#}    Sight {s.Sight:0.#}");
 
             var notes = new StringBuilder();
             if (state.TerrainAtPoint(unit.X, unit.Y) == TerrainType.Forest) notes.Append("In forest: +1 defense.  ");
             if (state.ElevationAtPoint(unit.X, unit.Y) > 0) notes.Append("High ground: +1 damage vs lower targets.  ");
             if (unit.Owner == state.CurrentPlayer)
-                notes.Append($"Moved: {(unit.HasMoved ? "yes" : "no")}   Attacked: {(unit.HasAttacked ? "yes" : "no")}");
+            {
+                notes.Append($"Moved: {(unit.HasMoved ? "yes" : "no")}   ");
+                notes.Append(s.CanSupport
+                    ? $"Supported: {(unit.HasSupported ? "yes" : "no")}"
+                    : $"Attacked: {(unit.HasAttacked ? "yes" : "no")}");
+            }
             sb.Append(notes.Length > 0 ? notes.ToString() : "—");
 
             _telemetryText.text = sb.ToString();
@@ -220,27 +232,37 @@ namespace Tactix.Game
         private void BuildLegendPanel(Transform canvas)
         {
             _legendPanel = MakePanel(canvas, "LegendPanel");
-            var title = MakeText(_legendPanel.transform, "Title", "UNIT LEGEND", 34, TextAnchor.MiddleCenter);
-            Anchor(title.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, 272), new Vector2(600, 50));
+            var title = MakeText(_legendPanel.transform, "Title", "UNIT LEGEND", 30, TextAnchor.MiddleCenter);
+            Anchor(title.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, 300), new Vector2(600, 44));
 
             for (int i = 0; i < UnitStats.AllTypes.Length; i++)
             {
                 var type = UnitStats.AllTypes[i];
                 var s = UnitStats.For(type);
-                float y = 210 - i * 62;
+                float y = 250 - i * 48;
 
                 var iconGo = new GameObject($"Icon {type}");
                 iconGo.transform.SetParent(_legendPanel.transform, false);
                 var icon = iconGo.AddComponent<Image>();
                 icon.sprite = VisualAssets.UnitSymbol(type, 0);
                 icon.preserveAspect = true;
-                Anchor(iconGo.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(-330, y), new Vector2(96, 80));
+                Anchor(iconGo.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(-390, y), new Vector2(74, 62));
 
-                string los = s.RequiresLineOfSight ? " (needs line of sight)" : "";
+                string role;
+                if (s.CanSupport)
+                {
+                    string treats = s.Supports == SupportTarget.Vehicles ? "vehicles" : "dismounted";
+                    role = $"Unarmed  •  restores +{s.SupportPower} HP to {treats} at range {s.SupportRange:0.#}";
+                }
+                else
+                {
+                    string los = s.RequiresLineOfSight ? " (needs LOS)" : "";
+                    role = $"Range {s.AttackRange:0.#}{los}  •  Damage {s.AttackPower}";
+                }
                 var row = MakeText(_legendPanel.transform, $"Row {type}",
-                    $"{VisualAssets.UnitDisplayName(type)}\nMove {s.MoveRange:0.#}  •  Range {s.AttackRange:0.#}{los}  •  Damage {s.AttackPower}  •  HP {s.MaxHp}  •  Sight {s.Sight:0.#}",
-                    18, TextAnchor.MiddleLeft);
-                Anchor(row.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(60, y), new Vector2(660, 60));
+                    $"{VisualAssets.UnitDisplayName(type)}\nMove {s.MoveRange:0.#}  •  {role}  •  HP {s.MaxHp}  •  Sight {s.Sight:0.#}",
+                    16, TextAnchor.MiddleLeft);
+                Anchor(row.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(20, y), new Vector2(740, 48));
             }
 
             (Color color, string text)[] terrain =
@@ -248,27 +270,30 @@ namespace Tactix.Game
                 (VisualAssets.OpenColor, "Open — no effect"),
                 (VisualAssets.ForestColor, "Forest — +1 defense to occupant, blocks artillery line of sight"),
                 (VisualAssets.ImpassableColor, "Impassable — blocks movement and line of sight"),
-                (VisualAssets.ContourColor, "Contour lines mark elevation changes (corner digit = height 1-3).\nThick contour = cliff, impassable; high ground +1 dmg; hills shape sight lines"),
+                (VisualAssets.ContourColor, "Contours mark elevation (digit = summit height); thick = cliff, blocks movement"),
             };
             for (int i = 0; i < terrain.Length; i++)
             {
-                float y = -122 - i * 38;
+                float y = -100 - i * 34;
                 var chipGo = new GameObject($"Chip {i}");
                 chipGo.transform.SetParent(_legendPanel.transform, false);
                 chipGo.AddComponent<Image>().color = terrain[i].color;
-                Anchor(chipGo.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(-330, y), new Vector2(30, 30));
+                Anchor(chipGo.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(-390, y), new Vector2(26, 26));
 
-                var row = MakeText(_legendPanel.transform, $"TerrainRow {i}", terrain[i].text, 18, TextAnchor.MiddleLeft);
-                Anchor(row.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(60, y), new Vector2(660, 34));
+                var row = MakeText(_legendPanel.transform, $"TerrainRow {i}", terrain[i].text, 16, TextAnchor.MiddleLeft);
+                Anchor(row.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(20, y), new Vector2(740, 32));
             }
 
             var note = MakeText(_legendPanel.transform, "Note",
-                "Free movement: a unit dashes in a straight line anywhere inside its shaded region (clicks outside it are clamped to the nearest reachable point).\nMove any units, then attack — the first attack ends movement for the whole turn. XP: +1 per attack, +2 bonus per kill (no gameplay effect yet).",
-                16, TextAnchor.MiddleCenter);
-            Anchor(note.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, -292), new Vector2(900, 50));
+                "Dismounted = infantry, mech, recon, medic.   Vehicles = armor, artillery, service.\n" +
+                "Free movement: a unit dashes in a straight line anywhere inside its shaded region; a click outside it is clamped to the nearest reachable point.\n" +
+                "Move any units, then attack — the first attack ends movement for the whole turn. Support is the exception: healing has its own slot and never locks movement.\n" +
+                "Red rings = attackable enemies.   Green rings = casualties you can treat.   XP: +1 per attack or heal, +2 bonus per kill.",
+                15, TextAnchor.MiddleCenter);
+            Anchor(note.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, -258), new Vector2(960, 86));
 
             var close = MakeButton(_legendPanel.transform, "Close", CloseLegend, new Color(0.32f, 0.32f, 0.38f));
-            Anchor(close.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -336), new Vector2(200, 44));
+            Anchor(close.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -322), new Vector2(200, 42));
         }
 
         private static GameObject MakePanel(Transform parent, string name)

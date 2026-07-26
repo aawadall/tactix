@@ -302,6 +302,95 @@ namespace Tactix.Core.Tests
             Assert.AreEqual(4.5, next.GetUnit(0).X, 1e-9);
         }
 
+        // ---------- support units ----------
+
+        [Test]
+        public void Medic_HealsDismountedOnly_ServiceRepairsVehiclesOnly()
+        {
+            var state = TestBoards.OpenBoard(12, 6)
+                .WithUnit(0, 0, UnitType.Medic, 5, 3)
+                .WithUnit(1, 0, UnitType.Infantry, 6, 3, hp: 2)   // dismounted, hurt
+                .WithUnit(2, 0, UnitType.Armor, 4, 3, hp: 4)      // vehicle, hurt
+                .WithUnit(3, 0, UnitType.Service, 5, 1)
+                .WithUnit(4, 0, UnitType.Artillery, 6, 1, hp: 1)  // vehicle, hurt
+                .WithUnit(5, 0, UnitType.Recon, 4, 1, hp: 1)      // dismounted, hurt
+                .WithUnit(6, 1, UnitType.Infantry, 5.8, 3.8, hp: 1); // enemy
+
+            var medicTargets = Rules.GetLegalHeals(state, 0).Select(h => h.TargetUnitId).ToList();
+            CollectionAssert.AreEquivalent(new[] { 1 }, medicTargets); // not the armour, not the enemy
+
+            var serviceTargets = Rules.GetLegalHeals(state, 3).Select(h => h.TargetUnitId).ToList();
+            CollectionAssert.AreEquivalent(new[] { 4 }, serviceTargets); // not the recon
+        }
+
+        [Test]
+        public void Heal_RestoresHp_CappedAtMax_AndSkipsHealthyUnits()
+        {
+            var state = TestBoards.OpenBoard(12, 6)
+                .WithUnit(0, 0, UnitType.Medic, 5, 3)
+                .WithUnit(1, 0, UnitType.Infantry, 6, 3, hp: 2)  // 5 max, +2 -> 4
+                .WithUnit(2, 0, UnitType.Recon, 4, 3, hp: 2);    // 3 max, +2 caps at 3
+
+            var afterInfantry = Rules.Apply(state, Heal(0, 1));
+            Assert.AreEqual(4, afterInfantry.GetUnit(1).Hp);
+            Assert.AreEqual(1, afterInfantry.GetUnit(0).Xp);
+
+            var afterRecon = Rules.Apply(state, Heal(0, 2));
+            Assert.AreEqual(3, afterRecon.GetUnit(2).Hp); // capped, not 4
+
+            // A unit at full strength is not a legal target.
+            var healthy = TestBoards.OpenBoard(12, 6)
+                .WithUnit(0, 0, UnitType.Medic, 5, 3)
+                .WithUnit(1, 0, UnitType.Infantry, 6, 3);
+            Assert.IsEmpty(Rules.GetLegalHeals(healthy, 0));
+        }
+
+        [Test]
+        public void Support_UsesItsOwnSlot_NeverEndsTheMovementPhase()
+        {
+            var state = TestBoards.OpenBoard(12, 6)
+                .WithUnit(0, 0, UnitType.Medic, 5, 3)
+                .WithUnit(1, 0, UnitType.Infantry, 6, 3, hp: 2)
+                .WithUnit(2, 1, UnitType.Infantry, 10, 3);
+
+            var after = Rules.Apply(state, Heal(0, 1));
+            Assert.AreEqual(TurnPhase.Move, after.TurnPhase);                 // army can still advance
+            Assert.IsTrue(Rules.IsLegalMoveTarget(after, 1, 6.0, 4.0));       // the patient too
+            Assert.IsTrue(after.GetUnit(0).HasSupported);
+            Assert.IsFalse(after.GetUnit(0).HasAttacked);
+            Assert.IsTrue(Rules.CanMove(after, 0));                           // medic may still move
+
+            Assert.IsEmpty(Rules.GetLegalHeals(after, 0));                    // but only supports once
+            Assert.Throws<IllegalActionException>(() => Rules.Apply(after, Heal(0, 1)));
+
+            var nextTurn = Rules.Apply(Rules.Apply(after, new EndTurnAction()), new EndTurnAction());
+            Assert.IsFalse(nextTurn.GetUnit(0).HasSupported);                 // slot refreshes
+        }
+
+        [Test]
+        public void SupportUnits_AreUnarmed_AndCannotHealThemselves()
+        {
+            var state = TestBoards.OpenBoard(12, 6)
+                .WithUnit(0, 0, UnitType.Medic, 5, 3, hp: 1)
+                .WithUnit(1, 0, UnitType.Service, 5.6, 3, hp: 1)
+                .WithUnit(2, 1, UnitType.Infantry, 5.5, 3.6);
+
+            Assert.IsEmpty(TestBoards.AttackTargets(state, 0)); // medic cannot attack an adjacent enemy
+            Assert.IsEmpty(TestBoards.AttackTargets(state, 1)); // nor can the service company
+            Assert.IsEmpty(Rules.GetLegalHeals(state, 0));      // medic can't treat itself or the vehicle
+            Assert.IsEmpty(Rules.GetLegalHeals(state, 1));      // service can't repair itself or the medic
+        }
+
+        [Test]
+        public void Heal_OutOfRange_IsIllegal()
+        {
+            var state = TestBoards.OpenBoard(12, 6)
+                .WithUnit(0, 0, UnitType.Medic, 5, 3)            // support range 1.5
+                .WithUnit(1, 0, UnitType.Infantry, 7.5, 3, hp: 1);
+            Assert.IsEmpty(Rules.GetLegalHeals(state, 0));
+            Assert.Throws<IllegalActionException>(() => Rules.Apply(state, Heal(0, 1)));
+        }
+
         // ---------- level config ----------
 
         [Test]
@@ -331,7 +420,7 @@ namespace Tactix.Core.Tests
                 Assert.AreEqual(unit.Type, mirror.Type);
             }
 
-            Assert.AreEqual(24, state.Units.Count);
+            Assert.AreEqual(28, state.Units.Count);
             foreach (int owner in new[] { 0, 1 })
             {
                 Assert.AreEqual(3, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Infantry));
@@ -339,6 +428,8 @@ namespace Tactix.Core.Tests
                 Assert.AreEqual(2, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Armor));
                 Assert.AreEqual(3, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Artillery));
                 Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Recon));
+                Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Medic));
+                Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Service));
             }
         }
 
@@ -438,5 +529,8 @@ namespace Tactix.Core.Tests
 
         private static AttackAction Attack(int unitId, int targetId) =>
             new AttackAction { UnitId = unitId, TargetUnitId = targetId };
+
+        private static HealAction Heal(int unitId, int targetId) =>
+            new HealAction { UnitId = unitId, TargetUnitId = targetId };
     }
 }

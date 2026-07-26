@@ -91,6 +91,9 @@ namespace Tactix.Core
             (UnitType.Artillery, 9.5, 0.0),
             (UnitType.Artillery, 11.5, 0.0),
             (UnitType.Artillery, 13.5, 0.0),
+            // support echelon, tucked behind the line
+            (UnitType.Medic, 7.5, 1.0),
+            (UnitType.Service, 16.0, 0.6),
         };
 
         public static GameState CreateStandardGame()

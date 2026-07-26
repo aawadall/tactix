@@ -36,6 +36,20 @@ namespace Tactix.Core
         {
             if (state.Winner != null) return new EndTurnAction();
 
+            // Support is free (its own slot), so always spend it when available,
+            // preferring the most badly hurt casualty.
+            var heals = state.Units
+                .Where(u => u.Owner == state.CurrentPlayer)
+                .SelectMany(u => Rules.GetLegalHeals(state, u.Id))
+                .ToList();
+            if (heals.Count > 0)
+            {
+                return heals
+                    .OrderBy(h => state.GetUnit(h.TargetUnitId).Hp)
+                    .ThenBy(_ => _rng.Next())
+                    .First();
+            }
+
             var attacks = state.Units
                 .Where(u => u.Owner == state.CurrentPlayer)
                 .SelectMany(u => Rules.GetLegalAttacks(state, u.Id))

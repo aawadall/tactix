@@ -48,6 +48,24 @@ namespace Tactix.Core
         public override string ToString() => $"Attack(unit {UnitId} -> unit {TargetUnitId})";
     }
 
+    /// <summary>
+    /// A support unit restoring HP to a friendly unit (medic treating dismounted
+    /// units, service company repairing vehicles). Uses its own per-turn slot.
+    /// </summary>
+    public sealed class HealAction : GameAction
+    {
+        public const string TypeName = "heal";
+        public override string ActionType => TypeName;
+
+        [JsonProperty("unitId")]
+        public int UnitId { get; set; }
+
+        [JsonProperty("targetUnitId")]
+        public int TargetUnitId { get; set; }
+
+        public override string ToString() => $"Heal(unit {UnitId} -> unit {TargetUnitId})";
+    }
+
     public sealed class EndTurnAction : GameAction
     {
         public const string TypeName = "endTurn";
@@ -78,6 +96,7 @@ namespace Tactix.Core
             {
                 case MoveAction.TypeName: return obj.ToObject<MoveAction>();
                 case AttackAction.TypeName: return obj.ToObject<AttackAction>();
+                case HealAction.TypeName: return obj.ToObject<HealAction>();
                 case EndTurnAction.TypeName: return obj.ToObject<EndTurnAction>();
                 default: throw new JsonSerializationException($"Unknown actionType '{type}'");
             }

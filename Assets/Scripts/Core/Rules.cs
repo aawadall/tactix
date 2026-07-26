@@ -190,6 +190,36 @@ namespace Tactix.Core
             return attacks;
         }
 
+        // ---------- support (heal / repair) ----------
+
+        /// <summary>
+        /// Legal support actions for the given unit: wounded friendly units of a
+        /// type this supporter can work on, within support range. Fully
+        /// enumerable. Support has its own per-turn slot — it does not consume
+        /// the attack and never ends the movement phase.
+        /// </summary>
+        public static List<HealAction> GetLegalHeals(GameState state, int unitId)
+        {
+            var heals = new List<HealAction>();
+            var unit = state.GetUnit(unitId);
+            if (unit == null || state.Winner != null) return heals;
+            if (unit.Owner != state.CurrentPlayer || unit.HasSupported) return heals;
+
+            var stats = unit.Stats;
+            if (!stats.CanSupport) return heals;
+
+            foreach (var target in state.Units)
+            {
+                if (target.Id == unit.Id) continue;          // no self-treatment
+                if (target.Owner != unit.Owner) continue;    // friendlies only
+                if (target.Hp >= target.Stats.MaxHp) continue; // already at full strength
+                if (!stats.CanSupportType(target.Type)) continue;
+                if (Distance(unit.X, unit.Y, target.X, target.Y) > stats.SupportRange + Geometry.Epsilon) continue;
+                heals.Add(new HealAction { UnitId = unitId, TargetUnitId = target.Id });
+            }
+            return heals;
+        }
+
         // ---------- action enumeration ----------
 
         /// <summary>
@@ -210,6 +240,7 @@ namespace Tactix.Core
                 if (unit.Owner != state.CurrentPlayer) continue;
                 actions.AddRange(SampleLegalMoves(state, unit.Id, movesPerUnit, rng));
                 actions.AddRange(GetLegalAttacks(state, unit.Id));
+                actions.AddRange(GetLegalHeals(state, unit.Id));
             }
             actions.Add(new EndTurnAction());
             return actions;
@@ -231,6 +262,7 @@ namespace Tactix.Core
             {
                 case MoveAction move: return ApplyMove(state, move);
                 case AttackAction attack: return ApplyAttack(state, attack);
+                case HealAction heal: return ApplyHeal(state, heal);
                 case EndTurnAction _: return ApplyEndTurn(state);
                 default:
                     throw new IllegalActionException($"Unknown action type {action?.GetType().Name ?? "null"}");
@@ -280,6 +312,23 @@ namespace Tactix.Core
             return next;
         }
 
+        private static GameState ApplyHeal(GameState state, HealAction heal)
+        {
+            bool legal = GetLegalHeals(state, heal.UnitId)
+                .Any(h => h.TargetUnitId == heal.TargetUnitId);
+            if (!legal)
+                throw new IllegalActionException($"Illegal heal: {heal}");
+
+            var next = state.Clone();
+            var supporter = next.GetUnit(heal.UnitId);
+            var target = next.GetUnit(heal.TargetUnitId);
+
+            supporter.HasSupported = true; // own slot: phase and attack are untouched
+            target.Hp = Math.Min(target.Stats.MaxHp, target.Hp + supporter.Stats.SupportPower);
+            supporter.Xp += 1;
+            return next;
+        }
+
         private static GameState ApplyEndTurn(GameState state)
         {
             var next = state.Clone();
@@ -290,6 +339,7 @@ namespace Tactix.Core
             {
                 unit.HasMoved = false;
                 unit.HasAttacked = false;
+                unit.HasSupported = false;
             }
             return next;
         }

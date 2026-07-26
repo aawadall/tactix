@@ -12,7 +12,7 @@ namespace Tactix.Core
     {
         /// <summary>Maximum straight-line distance the unit may dash in one turn.</summary>
         public double MoveRange { get; }
-        /// <summary>Maximum centre-to-centre distance to a target.</summary>
+        /// <summary>Maximum centre-to-centre distance to a target. Zero for unarmed units.</summary>
         public double AttackRange { get; }
         public int AttackPower { get; }
         public int MaxHp { get; }
@@ -22,7 +22,22 @@ namespace Tactix.Core
         /// <summary>Whether attacks require line of sight (blocked by terrain and relief).</summary>
         public bool RequiresLineOfSight { get; }
 
-        private UnitStats(double moveRange, double attackRange, int attackPower, int maxHp, double sight, double radius, bool requiresLineOfSight)
+        /// <summary>HP restored per support action; zero for units that cannot support.</summary>
+        public int SupportPower { get; }
+        /// <summary>Range of the support action.</summary>
+        public double SupportRange { get; }
+        /// <summary>Which units this one can support: medics treat crews, service repairs vehicles.</summary>
+        public SupportTarget Supports { get; }
+        /// <summary>Vehicles are repaired by service units; dismounted units are treated by medics.</summary>
+        public bool IsVehicle { get; }
+
+        public bool CanAttack => AttackPower > 0 && AttackRange > 0;
+        public bool CanSupport => SupportPower > 0 && Supports != SupportTarget.None;
+
+        private UnitStats(
+            double moveRange, double attackRange, int attackPower, int maxHp, double sight, double radius,
+            bool requiresLineOfSight, bool isVehicle,
+            int supportPower = 0, double supportRange = 0, SupportTarget supports = SupportTarget.None)
         {
             MoveRange = moveRange;
             AttackRange = attackRange;
@@ -31,27 +46,47 @@ namespace Tactix.Core
             Sight = sight;
             Radius = radius;
             RequiresLineOfSight = requiresLineOfSight;
+            IsVehicle = isVehicle;
+            SupportPower = supportPower;
+            SupportRange = supportRange;
+            Supports = supports;
         }
 
         public static readonly UnitStats Infantry = new UnitStats(
-            moveRange: 3.0, attackRange: 1.2, attackPower: 2, maxHp: 5, sight: 4.0, radius: 0.35, requiresLineOfSight: false);
+            moveRange: 3.0, attackRange: 1.2, attackPower: 2, maxHp: 5, sight: 4.0, radius: 0.35,
+            requiresLineOfSight: false, isVehicle: false);
 
         public static readonly UnitStats MechInfantry = new UnitStats(
-            moveRange: 4.5, attackRange: 1.2, attackPower: 2, maxHp: 6, sight: 4.0, radius: 0.35, requiresLineOfSight: false);
+            moveRange: 4.5, attackRange: 1.2, attackPower: 2, maxHp: 6, sight: 4.0, radius: 0.35,
+            requiresLineOfSight: false, isVehicle: false);
 
         public static readonly UnitStats Armor = new UnitStats(
-            moveRange: 4.0, attackRange: 1.5, attackPower: 4, maxHp: 8, sight: 3.0, radius: 0.40, requiresLineOfSight: false);
+            moveRange: 4.0, attackRange: 1.5, attackPower: 4, maxHp: 8, sight: 3.0, radius: 0.40,
+            requiresLineOfSight: false, isVehicle: true);
 
         public static readonly UnitStats Artillery = new UnitStats(
-            moveRange: 2.0, attackRange: 5.0, attackPower: 3, maxHp: 3, sight: 3.0, radius: 0.35, requiresLineOfSight: true);
+            moveRange: 2.0, attackRange: 5.0, attackPower: 3, maxHp: 3, sight: 3.0, radius: 0.35,
+            requiresLineOfSight: true, isVehicle: true);
 
         public static readonly UnitStats Recon = new UnitStats(
-            moveRange: 6.0, attackRange: 1.0, attackPower: 1, maxHp: 3, sight: 8.0, radius: 0.30, requiresLineOfSight: false);
+            moveRange: 6.0, attackRange: 1.0, attackPower: 1, maxHp: 3, sight: 8.0, radius: 0.30,
+            requiresLineOfSight: false, isVehicle: false);
+
+        public static readonly UnitStats Medic = new UnitStats(
+            moveRange: 4.0, attackRange: 0, attackPower: 0, maxHp: 4, sight: 4.0, radius: 0.30,
+            requiresLineOfSight: false, isVehicle: false,
+            supportPower: 2, supportRange: 1.5, supports: SupportTarget.Dismounted);
+
+        public static readonly UnitStats Service = new UnitStats(
+            moveRange: 2.5, attackRange: 0, attackPower: 0, maxHp: 6, sight: 3.0, radius: 0.40,
+            requiresLineOfSight: false, isVehicle: true,
+            supportPower: 3, supportRange: 1.2, supports: SupportTarget.Vehicles);
 
         /// <summary>All unit types, in display order (for legends, tools, iteration).</summary>
         public static readonly UnitType[] AllTypes =
         {
-            UnitType.Infantry, UnitType.MechInfantry, UnitType.Armor, UnitType.Artillery, UnitType.Recon,
+            UnitType.Infantry, UnitType.MechInfantry, UnitType.Armor, UnitType.Artillery,
+            UnitType.Recon, UnitType.Medic, UnitType.Service,
         };
 
         public static UnitStats For(UnitType type)
@@ -63,8 +98,31 @@ namespace Tactix.Core
                 case UnitType.Armor: return Armor;
                 case UnitType.Artillery: return Artillery;
                 case UnitType.Recon: return Recon;
+                case UnitType.Medic: return Medic;
+                case UnitType.Service: return Service;
                 default: throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown unit type");
             }
         }
+
+        /// <summary>True when a unit of <paramref name="targetType"/> is treatable by this supporter.</summary>
+        public bool CanSupportType(UnitType targetType)
+        {
+            switch (Supports)
+            {
+                case SupportTarget.Dismounted: return !For(targetType).IsVehicle;
+                case SupportTarget.Vehicles: return For(targetType).IsVehicle;
+                default: return false;
+            }
+        }
+    }
+
+    /// <summary>What a support unit is able to work on.</summary>
+    public enum SupportTarget
+    {
+        None = 0,
+        /// <summary>Foot and mounted-infantry units (medics).</summary>
+        Dismounted = 1,
+        /// <summary>Armour, artillery, and other vehicles (service/maintenance).</summary>
+        Vehicles = 2,
     }
 }

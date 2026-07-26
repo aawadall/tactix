@@ -259,7 +259,7 @@ namespace Tactix.Game
             renderer.sortingOrder = RegionOrder;
         }
 
-        public void SetSelection(Unit selected, IEnumerable<Unit> attackTargets)
+        public void SetSelection(Unit selected, IEnumerable<Unit> attackTargets, IEnumerable<Unit> healTargets = null)
         {
             ClearOverlays();
             if (selected != null)
@@ -268,12 +268,23 @@ namespace Tactix.Game
                     new Vector3((float)selected.X, (float)selected.Y, OverlayZ),
                     Vector3.one * (float)(selected.Stats.Radius * 2.6), 0f, ContourOrder));
             }
-            if (attackTargets == null) return;
-            foreach (var target in attackTargets)
+            if (attackTargets != null)
             {
-                _overlays.Add(MakeSprite($"Target {target.Id}", VisualAssets.Ring, VisualAssets.AttackTint,
-                    new Vector3((float)target.X, (float)target.Y, OverlayZ),
-                    Vector3.one * (float)(target.Stats.Radius * 3.0), 0f, ContourOrder));
+                foreach (var target in attackTargets)
+                {
+                    _overlays.Add(MakeSprite($"Target {target.Id}", VisualAssets.Ring, VisualAssets.AttackTint,
+                        new Vector3((float)target.X, (float)target.Y, OverlayZ),
+                        Vector3.one * (float)(target.Stats.Radius * 3.0), 0f, ContourOrder));
+                }
+            }
+            if (healTargets != null)
+            {
+                foreach (var target in healTargets)
+                {
+                    _overlays.Add(MakeSprite($"Casualty {target.Id}", VisualAssets.Ring, VisualAssets.HealTint,
+                        new Vector3((float)target.X, (float)target.Y, OverlayZ),
+                        Vector3.one * (float)(target.Stats.Radius * 3.0), 0f, ContourOrder));
+                }
             }
         }
 

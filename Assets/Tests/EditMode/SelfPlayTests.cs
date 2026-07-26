@@ -141,7 +141,7 @@ namespace Tactix.Core.Tests
             Assert.AreEqual(GameLogger.SchemaVersion, (int)header["schemaVersion"]);
             Assert.AreEqual("botVsBot", (string)header["mode"]);
             Assert.IsNotNull(header["initialState"]?["terrain"]);
-            Assert.AreEqual(24, header["initialState"]["units"].Count());
+            Assert.AreEqual(28, header["initialState"]["units"].Count());
             Assert.IsNotNull(header["initialState"]?["elevation"]);
 
             var result = JObject.Parse(lines[lines.Length - 1]);
@@ -159,7 +159,7 @@ namespace Tactix.Core.Tests
                 Assert.AreEqual(i - 1, (int)step["stepIndex"]);
 
                 var actionType = (string)step["action"]["actionType"];
-                CollectionAssert.Contains(new[] { "move", "attack", "endTurn" }, actionType);
+                CollectionAssert.Contains(new[] { "move", "attack", "heal", "endTurn" }, actionType);
 
                 // The acting player recorded on the line matches the pre-state.
                 Assert.AreEqual((int)step["stateBefore"]["currentPlayer"], (int)step["player"]);
