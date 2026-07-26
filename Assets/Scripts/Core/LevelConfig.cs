@@ -33,16 +33,20 @@ namespace Tactix.Core
 
             var units = new List<Unit>
             {
-                // Player 0 (bottom, rows 0-1)
-                NewUnit(0, 0, UnitType.Infantry, 3, 1),
-                NewUnit(1, 0, UnitType.Infantry, 4, 1),
-                NewUnit(2, 0, UnitType.Ranged, 2, 0),
-                NewUnit(3, 0, UnitType.Ranged, 5, 0),
-                // Player 1 (top, rows 6-7), mirrored
-                NewUnit(4, 1, UnitType.Infantry, 4, 6),
-                NewUnit(5, 1, UnitType.Infantry, 3, 6),
-                NewUnit(6, 1, UnitType.Ranged, 5, 7),
-                NewUnit(7, 1, UnitType.Ranged, 2, 7),
+                // Player 0 (bottom, rows 0-1): 2x Infantry, 1x Mech Inf, 1x Armor, 1x Artillery, 1x Recon
+                NewUnit(0, 0, UnitType.Infantry, 2, 1),
+                NewUnit(1, 0, UnitType.Infantry, 5, 1),
+                NewUnit(2, 0, UnitType.MechInfantry, 4, 1),
+                NewUnit(3, 0, UnitType.Armor, 3, 1),
+                NewUnit(4, 0, UnitType.Artillery, 3, 0),
+                NewUnit(5, 0, UnitType.Recon, 4, 0),
+                // Player 1 (top, rows 6-7), mirrored through 180° rotation
+                NewUnit(6, 1, UnitType.Infantry, 5, 6),
+                NewUnit(7, 1, UnitType.Infantry, 2, 6),
+                NewUnit(8, 1, UnitType.MechInfantry, 3, 6),
+                NewUnit(9, 1, UnitType.Armor, 4, 6),
+                NewUnit(10, 1, UnitType.Artillery, 4, 7),
+                NewUnit(11, 1, UnitType.Recon, 3, 7),
             };
 
             return new GameState

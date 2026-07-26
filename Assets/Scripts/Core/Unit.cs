@@ -28,6 +28,13 @@ namespace Tactix.Core
         [JsonProperty("hp")]
         public int Hp { get; set; }
 
+        /// <summary>
+        /// Experience: +1 per attack made, +2 more per kill. Display/logging only
+        /// in schema v2 — no gameplay effect yet.
+        /// </summary>
+        [JsonProperty("xp")]
+        public int Xp { get; set; }
+
         [JsonProperty("hasMoved")]
         public bool HasMoved { get; set; }
 

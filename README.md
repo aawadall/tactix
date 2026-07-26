@@ -36,16 +36,33 @@ Builds\Windows\Tactix.exe -batchmode -nographics -autoplay 100
 In game: click a friendly unit to select it (cyan = legal moves, red = legal
 attack targets, both computed by the rules engine), click a highlighted tile to
 move or a highlighted enemy to attack, End Turn button to pass. Right-click
-deselects.
+deselects. Clicking any unit shows its telemetry (health, XP, sight, damage);
+**L** or the Legend button opens the unit legend; **Esc** backs out of a game
+(or quits from the menu); Quit buttons on the menu and win screens.
+
+Units are drawn as NATO APP-6-style symbols (player-colored frame, company
+echelon bar): infantry ⨯, mechanized ⨯+track oval, armor oval, artillery ●,
+recon single slash.
 
 ## Rules summary
 
 - 8x8 board (hardcoded in `LevelConfig` only — the engine is board-size-agnostic).
   Terrain: open, forest (+1 defense to occupant, blocks line-of-sight),
   impassable. The layout is fixed and 180°-rotationally symmetric.
-- 2 players × (2 Infantry + 2 Ranged).
-  - Infantry: move 2, range 1, power 2, HP 5.
-  - Ranged: move 1, range 3 (needs line-of-sight), power 3, HP 3.
+- 2 players × 6 units (2 Infantry, 1 Mechanized Infantry, 1 Armor, 1 Artillery, 1 Recon):
+
+  | Type | Move | Range | Damage | HP | Sight | Needs LOS |
+  |---|---|---|---|---|---|---|
+  | Infantry | 2 | 1 | 2 | 5 | 3 | no |
+  | Mech Infantry | 3 | 1 | 2 | 6 | 3 | no |
+  | Armor | 3 | 1 | 4 | 8 | 2 | no |
+  | Artillery | 1 | 3 | 3 | 3 | 2 | yes |
+  | Recon | 4 | 1 | 1 | 3 | 5 | no |
+
+  Sight is defined, displayed, and logged but has no gameplay effect yet (no
+  fog of war in v1 — the field exists so fog can be added without a schema
+  change). XP accrues +1 per attack and +2 more per kill; display/logging only
+  for now.
 - **Diagonals count**: movement is 8-directional (each step cost 1), ranges are
   Chebyshev distance, "adjacent" = 8 neighbors.
 - Movement: BFS up to move range; impassable tiles and enemy units block paths;
@@ -60,7 +77,7 @@ deselects.
 - Damage = attacker power − (1 if defender stands in forest), no counterattacks.
   A unit at 0 HP is removed; eliminating all enemy units wins.
 
-## Data schemas (schemaVersion 1)
+## Data schemas (schemaVersion 2)
 
 Everything below is produced by `Tactix.Core` via Newtonsoft.Json and is the
 contract for the future imitation-learning pipeline. **Schema stability matters
@@ -73,8 +90,8 @@ more than anything else here** — change nothing without bumping
 {
   "terrain": [[0,0,1,2,0,0,0,0], ...],
   "units": [
-    {"id":0,"owner":0,"type":"infantry","x":3,"y":1,"hp":5,"hasMoved":false,"hasAttacked":false},
-    {"id":2,"owner":0,"type":"ranged","x":2,"y":0,"hp":3,"hasMoved":false,"hasAttacked":false}
+    {"id":0,"owner":0,"type":"infantry","x":2,"y":1,"hp":5,"xp":0,"hasMoved":false,"hasAttacked":false},
+    {"id":4,"owner":0,"type":"artillery","x":3,"y":0,"hp":3,"xp":0,"hasMoved":false,"hasAttacked":false}
   ],
   "currentPlayer": 0,
   "turnPhase": "move",
@@ -86,7 +103,7 @@ more than anything else here** — change nothing without bumping
 | Field | Meaning |
 |---|---|
 | `terrain` | rows of columns, `terrain[y][x]`; codes: `0` open, `1` forest, `2` impassable. Board size is implied by the array — never fixed. |
-| `units` | variable-length entity list; `type` is `"infantry"` \| `"ranged"`; ids are stable for the whole game; dead units are removed from the list. |
+| `units` | variable-length entity list; `type` is `"infantry"` \| `"mechInfantry"` \| `"armor"` \| `"artillery"` \| `"recon"`; `xp` is +1 per attack, +2 more per kill (no gameplay effect in v2); ids are stable for the whole game; dead units are removed from the list. |
 | `currentPlayer` | `0` or `1` |
 | `turnPhase` | `"move"` \| `"attack"` — first attack of a turn switches it; movement is only legal in `"move"`. |
 | `turnNumber` | 1-based ply counter, +1 on every end-turn. |
@@ -116,7 +133,8 @@ One file per game — `logs/` sits next to the project root in the editor and
 next to the executable in builds. One JSON object per line, in order:
 
 1. **header** (first line):
-   `{"type":"header","schemaVersion":1,"createdUtc":"<ISO-8601>","mode":"hotseat|vsBot|botVsBot","initialState":<GameState>}`
+   `{"type":"header","schemaVersion":2,"createdUtc":"<ISO-8601>","mode":"hotseat|vsBot|botVsBot","initialState":<GameState>}`
+   (schemaVersion 1 logs lack `xp` and use the old two-type roster with `"ranged"`.)
 2. **step** (one per applied action):
    `{"type":"step","stepIndex":<0-based>,"player":<actor>,"stateBefore":<GameState>,"action":<Action>,"stateAfter":<GameState>}`
    — steps chain: `stateAfter` of step *n* equals `stateBefore` of step *n+1*.

@@ -1,4 +1,4 @@
-using System.Linq;
+﻿using System.Linq;
 using NUnit.Framework;
 
 namespace Tactix.Core.Tests
@@ -17,11 +17,19 @@ namespace Tactix.Core.Tests
         }
 
         [Test]
-        public void Ranged_HasMoveRange1()
+        public void Artillery_HasMoveRange1()
         {
-            var state = TestBoards.OpenBoard(5, 5).WithUnit(0, 0, UnitType.Ranged, 2, 2);
+            var state = TestBoards.OpenBoard(5, 5).WithUnit(0, 0, UnitType.Artillery, 2, 2);
             var targets = TestBoards.MoveTargets(state, 0);
             Assert.AreEqual(8, targets.Count); // the 8 neighbors
+        }
+
+        [Test]
+        public void Recon_HasMoveRange4()
+        {
+            var state = TestBoards.OpenBoard(9, 9).WithUnit(0, 0, UnitType.Recon, 4, 4);
+            var targets = TestBoards.MoveTargets(state, 0);
+            Assert.AreEqual(80, targets.Count); // full 9x9 minus own tile
         }
 
         [Test]
@@ -109,33 +117,33 @@ namespace Tactix.Core.Tests
         }
 
         [Test]
-        public void Ranged_Attack_RespectsRange3_AndLineOfSight()
+        public void Artillery_Attack_RespectsRange3_AndLineOfSight()
         {
             var state = TestBoards.OpenBoard(8, 1)
-                .WithUnit(0, 0, UnitType.Ranged, 0, 0)
+                .WithUnit(0, 0, UnitType.Artillery, 0, 0)
                 .WithUnit(1, 1, UnitType.Infantry, 3, 0)  // in range, clear
                 .WithUnit(2, 1, UnitType.Infantry, 7, 0); // out of range
             CollectionAssert.AreEquivalent(new[] { 1 }, TestBoards.AttackTargets(state, 0));
 
             var blocked = TestBoards.OpenBoard(8, 1)
                 .WithTerrain(TerrainType.Forest, (1, 0))
-                .WithUnit(0, 0, UnitType.Ranged, 0, 0)
+                .WithUnit(0, 0, UnitType.Artillery, 0, 0)
                 .WithUnit(1, 1, UnitType.Infantry, 3, 0);
             Assert.IsEmpty(TestBoards.AttackTargets(blocked, 0));
 
             var blockedByRock = TestBoards.OpenBoard(8, 1)
                 .WithTerrain(TerrainType.Impassable, (2, 0))
-                .WithUnit(0, 0, UnitType.Ranged, 0, 0)
+                .WithUnit(0, 0, UnitType.Artillery, 0, 0)
                 .WithUnit(1, 1, UnitType.Infantry, 3, 0);
             Assert.IsEmpty(TestBoards.AttackTargets(blockedByRock, 0));
         }
 
         [Test]
-        public void Ranged_TargetInForest_IsVisible_ForestOnlyBlocksInBetween()
+        public void Artillery_TargetInForest_IsVisible_ForestOnlyBlocksInBetween()
         {
             var state = TestBoards.OpenBoard(8, 1)
                 .WithTerrain(TerrainType.Forest, (3, 0))
-                .WithUnit(0, 0, UnitType.Ranged, 0, 0)
+                .WithUnit(0, 0, UnitType.Artillery, 0, 0)
                 .WithUnit(1, 1, UnitType.Infantry, 3, 0); // stands in the forest
             CollectionAssert.AreEquivalent(new[] { 1 }, TestBoards.AttackTargets(state, 0));
         }
@@ -147,13 +155,13 @@ namespace Tactix.Core.Tests
             // but (1,1) is crossed through its interior.
             var cornerOnly = TestBoards.OpenBoard(4, 4)
                 .WithTerrain(TerrainType.Forest, (1, 0), (0, 1))
-                .WithUnit(0, 0, UnitType.Ranged, 0, 0)
+                .WithUnit(0, 0, UnitType.Artillery, 0, 0)
                 .WithUnit(1, 1, UnitType.Infantry, 2, 2);
             CollectionAssert.AreEquivalent(new[] { 1 }, TestBoards.AttackTargets(cornerOnly, 0));
 
             var interior = TestBoards.OpenBoard(4, 4)
                 .WithTerrain(TerrainType.Forest, (1, 1))
-                .WithUnit(0, 0, UnitType.Ranged, 0, 0)
+                .WithUnit(0, 0, UnitType.Artillery, 0, 0)
                 .WithUnit(1, 1, UnitType.Infantry, 2, 2);
             Assert.IsEmpty(TestBoards.AttackTargets(interior, 0));
         }
@@ -194,9 +202,9 @@ namespace Tactix.Core.Tests
         public void Attack_SwitchesPhase_KillRemovesUnit_LastKillWins()
         {
             var state = TestBoards.OpenBoard(4, 1)
-                .WithUnit(0, 0, UnitType.Ranged, 0, 0)
+                .WithUnit(0, 0, UnitType.Artillery, 0, 0)
                 .WithUnit(1, 0, UnitType.Infantry, 1, 0)
-                .WithUnit(2, 1, UnitType.Ranged, 3, 0); // hp 3, dies to pow 3
+                .WithUnit(2, 1, UnitType.Artillery, 3, 0); // hp 3, dies to pow 3
 
             var after = Rules.Apply(state, new AttackAction { UnitId = 0, TargetUnitId = 2 });
             Assert.AreEqual(TurnPhase.Attack, after.TurnPhase);
@@ -213,6 +221,26 @@ namespace Tactix.Core.Tests
                 .WithUnit(1, 1, UnitType.Infantry, 1, 0);
             var after = Rules.Apply(state, new AttackAction { UnitId = 0, TargetUnitId = 1 });
             Assert.AreEqual(5, after.GetUnit(0).Hp); // attacker untouched
+        }
+
+        [Test]
+        public void Attack_GrantsXp_MoreForKills()
+        {
+            var state = TestBoards.OpenBoard(4, 1)
+                .WithUnit(0, 0, UnitType.Armor, 0, 0)
+                .WithUnit(1, 1, UnitType.Armor, 1, 0)      // survives (8 hp - 4)
+                .WithUnit(2, 1, UnitType.Recon, 3, 0);
+
+            var after = Rules.Apply(state, new AttackAction { UnitId = 0, TargetUnitId = 1 });
+            Assert.AreEqual(1, after.GetUnit(0).Xp); // hit, no kill
+
+            var killState = TestBoards.OpenBoard(4, 1)
+                .WithUnit(0, 0, UnitType.Armor, 0, 0)
+                .WithUnit(1, 1, UnitType.Recon, 1, 0)      // dies (3 hp vs pow 4)
+                .WithUnit(2, 1, UnitType.Armor, 3, 0);
+            var afterKill = Rules.Apply(killState, new AttackAction { UnitId = 0, TargetUnitId = 1 });
+            Assert.AreEqual(3, afterKill.GetUnit(0).Xp); // +1 attack, +2 kill
+            Assert.IsNull(afterKill.GetUnit(1));
         }
 
         [Test]
@@ -274,9 +302,15 @@ namespace Tactix.Core.Tests
                 Assert.AreEqual(1 - unit.Owner, mirror.Owner);
             }
 
-            Assert.AreEqual(8, state.Units.Count);
-            Assert.AreEqual(2, state.Units.Count(u => u.Owner == 0 && u.Type == UnitType.Infantry));
-            Assert.AreEqual(2, state.Units.Count(u => u.Owner == 0 && u.Type == UnitType.Ranged));
+            Assert.AreEqual(12, state.Units.Count);
+            foreach (int owner in new[] { 0, 1 })
+            {
+                Assert.AreEqual(2, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Infantry));
+                Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.MechInfantry));
+                Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Armor));
+                Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Artillery));
+                Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Recon));
+            }
         }
 
         [Test]
@@ -298,6 +332,8 @@ namespace Tactix.Core.Tests
             var restored = GameState.FromJson(json);
             Assert.AreEqual(json, restored.ToJson());
             StringAssert.Contains("\"infantry\"", json);
+            StringAssert.Contains("\"mechInfantry\"", json);
+            StringAssert.Contains("\"xp\"", json);
             StringAssert.Contains("\"turnPhase\"", json);
         }
 
@@ -321,3 +357,4 @@ namespace Tactix.Core.Tests
         }
     }
 }
+

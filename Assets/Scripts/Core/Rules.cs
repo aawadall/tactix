@@ -146,9 +146,11 @@ namespace Tactix.Core
             int defense = next.TerrainAt(target.X, target.Y) == TerrainType.Forest ? 1 : 0;
             int damage = Math.Max(0, attacker.Stats.AttackPower - defense);
             target.Hp -= damage;
+            attacker.Xp += 1; // display-only in schema v2
 
             if (target.Hp <= 0)
             {
+                attacker.Xp += 2;
                 next.Units.Remove(target);
                 if (next.Units.All(u => u.Owner == attacker.Owner))
                     next.Winner = attacker.Owner;

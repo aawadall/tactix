@@ -47,23 +47,21 @@ namespace Tactix.Game
 
             foreach (var unit in state.Units)
             {
-                Color baseColor = unit.Owner == 0 ? VisualAssets.Player0Color : VisualAssets.Player1Color;
                 bool exhausted = unit.Owner == state.CurrentPlayer && unit.HasAttacked;
-                if (exhausted) baseColor *= VisualAssets.ExhaustedMul;
+                Color tint = exhausted ? VisualAssets.ExhaustedMul : Color.white;
 
-                var sprite = unit.Type == UnitType.Ranged ? VisualAssets.Circle : VisualAssets.Square;
-                var go = MakeSprite($"Unit {unit.Id}", sprite, baseColor,
-                    new Vector3(unit.X, unit.Y, UnitZ), new Vector3(0.7f, 0.7f, 1f), sortingOrder: 2);
+                var sprite = VisualAssets.UnitSymbol(unit.Type, unit.Owner);
+                var go = MakeSprite($"Unit {unit.Id}", sprite, tint,
+                    new Vector3(unit.X, unit.Y - 0.06f, UnitZ), Vector3.one, sortingOrder: 2);
 
                 var textGo = new GameObject("Hp");
                 textGo.transform.SetParent(go.transform, false);
-                textGo.transform.localPosition = new Vector3(0f, 0f, (TextZ - UnitZ) / 0.7f);
-                textGo.transform.localScale = Vector3.one * (1f / 0.7f);
+                textGo.transform.localPosition = new Vector3(0.33f, -0.20f, TextZ - UnitZ);
                 var text = textGo.AddComponent<TextMesh>();
                 text.text = unit.Hp.ToString();
                 text.font = VisualAssets.UiFont;
                 text.fontSize = 48;
-                text.characterSize = 0.09f;
+                text.characterSize = 0.075f;
                 text.anchor = TextAnchor.MiddleCenter;
                 text.alignment = TextAlignment.Center;
                 text.color = Color.white;

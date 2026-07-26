@@ -77,11 +77,17 @@ namespace Tactix.Game
                 }
             }
 
-            // (Re)select a friendly unit, or deselect on empty ground.
+            // (Re)select a friendly unit, inspect an enemy, or deselect on empty ground.
             if (clickedUnit != null && clickedUnit.Owner == state.CurrentPlayer)
             {
                 _selectedUnitId = clickedUnit.Id;
                 RefreshSelection();
+            }
+            else if (clickedUnit != null)
+            {
+                // Enemy that isn't an attack target: show its telemetry only.
+                ClearSelection();
+                _game.Ui.ShowTelemetry(clickedUnit, state);
             }
             else
             {
@@ -95,6 +101,7 @@ namespace Tactix.Game
             _legalMoves.Clear();
             _legalAttacks.Clear();
             if (_board != null) _board.ClearHighlights();
+            if (_game != null && _game.Ui != null) _game.Ui.HideTelemetry();
         }
 
         private void RefreshSelection()
@@ -109,6 +116,7 @@ namespace Tactix.Game
 
             _legalMoves = Rules.GetLegalMoves(state, unit.Id);
             _legalAttacks = Rules.GetLegalAttacks(state, unit.Id);
+            _game.Ui.ShowTelemetry(unit, state);
 
             var attackTiles = _legalAttacks
                 .Select(a => state.GetUnit(a.TargetUnitId))

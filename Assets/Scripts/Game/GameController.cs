@@ -38,6 +38,8 @@ namespace Tactix.Game
 
         public bool CanAcceptInput => IsHumanTurn;
 
+        public UiController Ui => _ui;
+
         private void Awake()
         {
             CreateCamera();
@@ -55,6 +57,17 @@ namespace Tactix.Game
             // "Tactix.exe -autoplay [N]" runs N bot-vs-bot games unattended (for
             // self-play data generation, works with -batchmode -nographics) and quits.
             var args = System.Environment.GetCommandLineArgs();
+
+            // "Tactix.exe -shots <dir>" (debug): start a bot game, capture two
+            // screenshots (board + legend), then quit. Requires a rendering run.
+            int shotsIndex = System.Array.IndexOf(args, "-shots");
+            if (shotsIndex >= 0)
+            {
+                string dir = shotsIndex + 1 < args.Length ? args[shotsIndex + 1] : ".";
+                StartCoroutine(ScreenshotSequence(dir));
+                return;
+            }
+
             int autoplayIndex = System.Array.IndexOf(args, "-autoplay");
             if (autoplayIndex >= 0)
             {
@@ -192,6 +205,41 @@ namespace Tactix.Game
                 if (GameStarted && State.Winner == null && !IsHumanTurn)
                     TrySubmitAction(_bot.ChooseAction(State));
             }
+        }
+
+        private void Update()
+        {
+            if (Input.GetKeyDown(KeyCode.L)) _ui.ToggleLegend();
+
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                if (_ui.LegendOpen) _ui.CloseLegend();
+                else if (GameStarted) BackToMenu(); // aborts the game (logger writes an incomplete-result line)
+                else QuitGame();
+            }
+        }
+
+        public void QuitGame()
+        {
+            EndLoggerIfOpen();
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
+        }
+
+        private IEnumerator ScreenshotSequence(string dir)
+        {
+            StartGame(GameMode.BotVsBot);
+            yield return new WaitForSeconds(1.4f);
+            ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "shot_game.png"));
+            yield return new WaitForSeconds(0.5f);
+            _ui.ToggleLegend();
+            yield return new WaitForSeconds(0.5f);
+            ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "shot_legend.png"));
+            yield return new WaitForSeconds(0.5f);
+            QuitGame();
         }
 
         private void EndLoggerIfOpen()
