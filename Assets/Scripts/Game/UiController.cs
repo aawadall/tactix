@@ -23,6 +23,7 @@ namespace Tactix.Game
         private GameObject _legendPanel;
         private GameObject _telemetryPanel;
         private Text _telemetryText;
+        private Text _mapButtonLabel;
 
         public bool LegendOpen => _legendPanel != null && _legendPanel.activeSelf;
 
@@ -61,6 +62,13 @@ namespace Tactix.Game
             _endTurnButton.SetActive(false);
             HideTelemetry();
             _winText.text = $"Player {winner + 1} ({PlayerName(winner)}) wins!";
+        }
+
+        /// <summary>Keeps the map-source button's label in step with the setting.</summary>
+        public void RefreshMapButton()
+        {
+            if (_mapButtonLabel == null) return;
+            _mapButtonLabel.text = _game.UseRandomMap ? "Map: Random (generated)" : "Map: Standard (fixed)";
         }
 
         public void ToggleLegend()
@@ -204,17 +212,22 @@ namespace Tactix.Game
                 var mode = modes[i];
                 var button = MakeButton(_modePanel.transform, labels[i], () => _game.StartGame(mode),
                     new Color(0.22f, 0.42f, 0.32f));
-                Anchor(button.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, 60 - i * 72), new Vector2(320, 58));
+                Anchor(button.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, 70 - i * 68), new Vector2(320, 56));
             }
 
+            var mapButton = MakeButton(_modePanel.transform, "", () => _game.ToggleRandomMap(), new Color(0.30f, 0.30f, 0.46f));
+            Anchor(mapButton.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -142), new Vector2(320, 56));
+            _mapButtonLabel = mapButton.GetComponentInChildren<Text>();
+            RefreshMapButton();
+
             var legend = MakeButton(_modePanel.transform, "Unit Legend", ToggleLegend, new Color(0.32f, 0.32f, 0.38f));
-            Anchor(legend.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -156), new Vector2(320, 58));
+            Anchor(legend.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -210), new Vector2(320, 56));
 
             var quit = MakeButton(_modePanel.transform, "Quit", () => _game.QuitGame(), new Color(0.5f, 0.24f, 0.22f));
-            Anchor(quit.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -228), new Vector2(320, 58));
+            Anchor(quit.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -278), new Vector2(320, 56));
 
-            var hint = MakeText(_modePanel.transform, "Hint", "Esc: back / quit   •   L: legend   •   right-click: deselect", 16, TextAnchor.MiddleCenter);
-            Anchor(hint.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, -300), new Vector2(700, 30));
+            var hint = MakeText(_modePanel.transform, "Hint", "Esc: back / quit   •   L: legend   •   F11: fullscreen   •   right-click: deselect", 15, TextAnchor.MiddleCenter);
+            Anchor(hint.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, -330), new Vector2(800, 28));
         }
 
         private void BuildWinPanel(Transform canvas)

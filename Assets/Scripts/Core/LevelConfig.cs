@@ -73,7 +73,11 @@ namespace Tactix.Core
             "000000000000000000000000", // y0
         };
 
-        /// <summary>Starting formation for player 0; player 1 mirrors it through the board centre.</summary>
+        /// <summary>
+        /// Starting formation for player 0, authored for the 24-wide standard map;
+        /// <see cref="DeployStandardArmies"/> re-centres it on any board width.
+        /// Player 1 mirrors it through the board centre.
+        /// </summary>
         private static readonly (UnitType type, double x, double y)[] Formation =
         {
             // screening line
@@ -116,23 +120,64 @@ namespace Tactix.Core
                 }
             }
 
-            var units = new List<Unit>();
-            int id = 0;
-            foreach (var (type, x, y) in Formation)
-                units.Add(NewUnit(id++, 0, type, x, y));
-            foreach (var (type, x, y) in Formation)
-                units.Add(NewUnit(id++, 1, type, width - 1 - x, height - 1 - y));
-
-            return new GameState
+            var state = new GameState
             {
                 Terrain = terrain,
                 Elevation = elevation,
-                Units = units,
+                Units = new List<Unit>(),
                 CurrentPlayer = 0,
                 TurnPhase = TurnPhase.Move,
                 TurnNumber = 1,
                 Winner = null,
             };
+            DeployStandardArmies(state);
+            return state;
+        }
+
+        /// <summary>
+        /// Places both armies on an already-built board: player 0 along the bottom
+        /// edge and player 1 mirrored through the board centre, so the deployment
+        /// is symmetric on any map. The formation is re-centred (and compressed if
+        /// the board is narrow) to fit the board width.
+        /// </summary>
+        public static void DeployStandardArmies(GameState state)
+        {
+            const double authoredCentre = 11.5; // centre of the 24-wide standard map
+            double centre = (state.Width - 1) / 2.0;
+
+            double widestOffset = 0;
+            foreach (var (_, x, _) in Formation)
+                widestOffset = Math.Max(widestOffset, Math.Abs(x - authoredCentre));
+
+            double usableHalfWidth = centre - 0.5;
+            double scale = widestOffset > usableHalfWidth ? usableHalfWidth / widestOffset : 1.0;
+
+            state.Units.Clear();
+            int id = 0;
+            foreach (var (type, x, y) in Formation)
+                state.Units.Add(NewUnit(id++, 0, type, centre + (x - authoredCentre) * scale, y));
+            foreach (var (type, x, y) in Formation)
+                state.Units.Add(NewUnit(id++, 1, type,
+                    centre - (x - authoredCentre) * scale, state.Height - 1 - y));
+
+            ValidateDeployment(state);
+        }
+
+        /// <summary>Fails loudly rather than starting a game from an illegal position.</summary>
+        private static void ValidateDeployment(GameState state)
+        {
+            foreach (var unit in state.Units)
+            {
+                if (state.TerrainAtPoint(unit.X, unit.Y) == TerrainType.Impassable)
+                    throw new InvalidOperationException($"Unit {unit.Id} deployed inside impassable terrain at ({unit.X},{unit.Y})");
+                foreach (var other in state.Units)
+                {
+                    if (other.Id == unit.Id) continue;
+                    double separation = Geometry.Distance(unit.X, unit.Y, other.X, other.Y);
+                    if (separation < unit.Stats.Radius + other.Stats.Radius)
+                        throw new InvalidOperationException($"Units {unit.Id} and {other.Id} deployed overlapping");
+                }
+            }
         }
 
         private static TerrainType ParseTerrain(char c)

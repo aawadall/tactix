@@ -31,7 +31,12 @@ file each to `logs/` next to the exe, then quits):
 
 ```
 Builds\Windows\Tactix.exe -batchmode -nographics -autoplay 100
+Builds\Windows\Tactix.exe -batchmode -nographics -autoplay 100 -randommaps
 ```
+
+`-randommaps` generates a fresh map per game — the right choice for training
+data, since it stops a model from memorising one board. The seed of every
+generated map is written into the log header, so any game can be reproduced.
 
 The window is resizable and maximizable (F11 or Alt+Enter toggles fullscreen);
 the board reframes itself on any resize.
@@ -62,12 +67,18 @@ contours mark cliffs.
   impassable tile, and never crosses a cliff. The legal region is therefore
   star-shaped around the unit — see the architecture note below for why that
   shape matters.
-- 24x24 board (hardcoded in `LevelConfig` only, authored as ASCII layers — the
-  engine is board-size-agnostic). Terrain: open, forest (+1 defense to
-  occupant, blocks line-of-sight), impassable. The relief was generated offline
-  with fractal noise, symmetrized, and repaired for reachability, then baked in;
-  the shipped map is fixed and 180°-rotationally symmetric with no runtime
-  randomness.
+- 24x24 board. Terrain: open, forest (+1 defense to occupant, blocks
+  line-of-sight), impassable. Two map sources, chosen from the main menu:
+  - **Standard** — a fixed board baked into `LevelConfig` as ASCII layers.
+  - **Random** — `MapGenerator.Generate(width, height, seed)` builds one at
+    runtime. Both are produced by the same procedure: fractal value noise,
+    symmetrized through the board centre so neither side gets the better
+    ground, quantized into four elevation bands, then repaired so every tile
+    stays reachable under the cliff rule, with flat open deployment strips at
+    both ends. Generation is deterministic per seed and the seed is logged.
+
+  The engine is board-size-agnostic; the generator accepts any size from 16x16
+  up, square or not, and re-centres the starting formation to fit.
 - **Topographic layer**: every tile has an elevation (0–3), rendered as
   contour lines with spot heights on the summits:
   - *Movement*: crossing between tiles whose elevation differs by 2 or more is
@@ -126,7 +137,7 @@ contours mark cliffs.
   forest), floored at 0; no counterattacks. A unit at 0 HP is removed;
   eliminating all enemy units wins.
 
-## Data schemas (schemaVersion 5)
+## Data schemas (schemaVersion 6)
 
 Everything below is produced by `Tactix.Core` via Newtonsoft.Json and is the
 contract for the future imitation-learning pipeline. **Schema stability matters
@@ -196,13 +207,20 @@ One file per game — `logs/` sits next to the project root in the editor and
 next to the executable in builds. One JSON object per line, in order:
 
 1. **header** (first line):
-   `{"type":"header","schemaVersion":4,"createdUtc":"<ISO-8601>","mode":"hotseat|vsBot|botVsBot","initialState":<GameState>}`
-   Version history — v4 moved to continuous positions (float `x`/`y`, 24x24
-   map, 12 units/side); v3 was the last grid-based schema (integer tile
-   coordinates, 16x16, 8 units/side); v2 lacked `elevation`; v1 also lacked
-   `xp` and used a two-type roster with `"ranged"`. **Grid-era logs (v1–v3) are
-   not compatible with continuous-era models** — the coordinate semantics
-   differ, so filter on `schemaVersion` before training.
+   ```json
+   {"type":"header","schemaVersion":6,"createdUtc":"<ISO-8601>",
+    "mode":"hotseat|vsBot|botVsBot","mapSource":"standard|generated",
+    "mapSeed":123456789,"initialState":<GameState>}
+   ```
+   `mapSeed` is `null` for the standard map; for generated maps it reproduces
+   the board exactly via `MapGenerator.Generate(w, h, seed)`.
+
+   Version history — v6 added `mapSource`/`mapSeed`; v5 added support units
+   (`medic`, `service`, `hasSupported`, `heal` actions); v4 moved to continuous
+   positions (float `x`/`y`); v3 was the last grid-based schema (integer tile
+   coordinates); v2 lacked `elevation`; v1 also lacked `xp`. **Grid-era logs
+   (v1–v3) are not compatible with continuous-era models** — the coordinate
+   semantics differ, so filter on `schemaVersion` before training.
 2. **step** (one per applied action):
    `{"type":"step","stepIndex":<0-based>,"player":<actor>,"stateBefore":<GameState>,"action":<Action>,"stateAfter":<GameState>}`
    — steps chain: `stateAfter` of step *n* equals `stateBefore` of step *n+1*.

@@ -20,9 +20,17 @@ namespace Tactix.Game
     {
         private const float BotActionDelay = 0.35f;
 
+        /// <summary>Board size used when generating a random map.</summary>
+        private const int RandomMapSize = 24;
+
         public GameState State { get; private set; }
         public GameMode Mode { get; private set; }
         public bool GameStarted => State != null;
+
+        /// <summary>When set, each new game is played on a freshly generated map.</summary>
+        public bool UseRandomMap { get; private set; }
+
+        private int? _mapSeed;
 
         private BoardRenderer _board;
         private InputController _input;
@@ -66,9 +74,14 @@ namespace Tactix.Game
             if (shotsIndex >= 0)
             {
                 string dir = shotsIndex + 1 < args.Length ? args[shotsIndex + 1] : ".";
+                if (System.Array.IndexOf(args, "-randommaps") >= 0) UseRandomMap = true;
                 StartCoroutine(ScreenshotSequence(dir));
                 return;
             }
+
+            // "-randommaps" pairs with -autoplay: every self-play game gets a fresh
+            // generated map, which is what you want for training-set diversity.
+            if (System.Array.IndexOf(args, "-randommaps") >= 0) UseRandomMap = true;
 
             int autoplayIndex = System.Array.IndexOf(args, "-autoplay");
             if (autoplayIndex >= 0)
@@ -120,9 +133,20 @@ namespace Tactix.Game
         {
             EndLoggerIfOpen();
             Mode = mode;
-            State = LevelConfig.CreateStandardGame();
+
+            if (UseRandomMap)
+            {
+                _mapSeed = Random.Range(int.MinValue, int.MaxValue);
+                State = MapGenerator.Generate(RandomMapSize, RandomMapSize, _mapSeed.Value);
+            }
+            else
+            {
+                _mapSeed = null;
+                State = LevelConfig.CreateStandardGame();
+            }
+
             _bot = mode == GameMode.Hotseat ? null : new RandomBot();
-            _logger = new GameLogger(LogDirectory, ModeString(mode), State);
+            _logger = new GameLogger(LogDirectory, ModeString(mode), State, _mapSeed);
 
             FrameBoard();
             _board.BuildTerrain(State);
@@ -238,6 +262,13 @@ namespace Tactix.Game
                 else if (GameStarted) BackToMenu(); // aborts the game (logger writes an incomplete-result line)
                 else QuitGame();
             }
+        }
+
+        /// <summary>Toggles between the fixed standard map and freshly generated ones.</summary>
+        public void ToggleRandomMap()
+        {
+            UseRandomMap = !UseRandomMap;
+            _ui.RefreshMapButton();
         }
 
         public void QuitGame()

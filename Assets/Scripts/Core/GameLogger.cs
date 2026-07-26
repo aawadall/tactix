@@ -15,7 +15,7 @@ namespace Tactix.Core
     /// </summary>
     public sealed class GameLogger : IDisposable
     {
-        public const int SchemaVersion = 5;
+        public const int SchemaVersion = 6;
 
         private readonly StreamWriter _writer;
         private int _stepCount;
@@ -23,7 +23,12 @@ namespace Tactix.Core
 
         public string FilePath { get; }
 
-        public GameLogger(string directory, string mode, GameState initialState)
+        /// <summary>
+        /// Opens a log for one game. <paramref name="mapSeed"/> is the seed used to
+        /// generate the map, or null for the fixed standard map — recording it keeps
+        /// every logged game reproducible.
+        /// </summary>
+        public GameLogger(string directory, string mode, GameState initialState, int? mapSeed = null)
         {
             Directory.CreateDirectory(directory);
             string stamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
@@ -36,6 +41,8 @@ namespace Tactix.Core
                 SchemaVersion = SchemaVersion,
                 CreatedUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
                 Mode = mode,
+                MapSource = mapSeed.HasValue ? "generated" : "standard",
+                MapSeed = mapSeed,
                 InitialState = initialState,
             });
         }
@@ -83,6 +90,8 @@ namespace Tactix.Core
             [JsonProperty("schemaVersion")] public int SchemaVersion { get; set; }
             [JsonProperty("createdUtc")] public string CreatedUtc { get; set; }
             [JsonProperty("mode")] public string Mode { get; set; }
+            [JsonProperty("mapSource")] public string MapSource { get; set; }
+            [JsonProperty("mapSeed")] public int? MapSeed { get; set; }
             [JsonProperty("initialState")] public GameState InitialState { get; set; }
         }
 
