@@ -117,7 +117,8 @@ namespace Tactix.Core.Tests
             Assert.AreEqual(GameLogger.SchemaVersion, (int)header["schemaVersion"]);
             Assert.AreEqual("botVsBot", (string)header["mode"]);
             Assert.IsNotNull(header["initialState"]?["terrain"]);
-            Assert.AreEqual(12, header["initialState"]["units"].Count());
+            Assert.AreEqual(16, header["initialState"]["units"].Count());
+            Assert.IsNotNull(header["initialState"]?["elevation"]);
 
             var result = JObject.Parse(lines[lines.Length - 1]);
             Assert.AreEqual("result", (string)result["type"]);

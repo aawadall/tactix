@@ -89,11 +89,12 @@ namespace Tactix.Game
             var s = unit.Stats;
             var sb = new StringBuilder();
             sb.AppendLine($"{VisualAssets.UnitDisplayName(unit.Type)}  —  Player {unit.Owner + 1} ({PlayerName(unit.Owner)})");
-            sb.AppendLine($"Health {unit.Hp}/{s.MaxHp}    XP {unit.Xp}");
+            sb.AppendLine($"Health {unit.Hp}/{s.MaxHp}    XP {unit.Xp}    Elevation {state.ElevationAt(unit.X, unit.Y)}");
             sb.AppendLine($"Damage {s.AttackPower}    Range {s.AttackRange}{(s.RequiresLineOfSight ? " (needs LOS)" : "")}    Move {s.MoveRange}    Sight {s.Sight}");
 
             var notes = new StringBuilder();
             if (state.TerrainAt(unit.X, unit.Y) == TerrainType.Forest) notes.Append("In forest: +1 defense.  ");
+            if (state.ElevationAt(unit.X, unit.Y) > 0) notes.Append("High ground: +1 damage vs lower targets.  ");
             if (unit.Owner == state.CurrentPlayer)
                 notes.Append($"Moved: {(unit.HasMoved ? "yes" : "no")}   Attacked: {(unit.HasAttacked ? "yes" : "no")}");
             sb.Append(notes.Length > 0 ? notes.ToString() : "—");
@@ -243,10 +244,11 @@ namespace Tactix.Game
                 (VisualAssets.OpenColor, "Open — no effect"),
                 (VisualAssets.ForestColor, "Forest — +1 defense to occupant, blocks artillery line of sight"),
                 (VisualAssets.ImpassableColor, "Impassable — blocks movement and line of sight"),
+                (new Color(0.55f, 0.53f, 0.46f), "Elevation 0-3 — lighter tile = higher ground.\nCliffs (2+ steps) block moves; high ground +1 dmg; hills shape sight lines"),
             };
             for (int i = 0; i < terrain.Length; i++)
             {
-                float y = -122 - i * 40;
+                float y = -122 - i * 38;
                 var chipGo = new GameObject($"Chip {i}");
                 chipGo.transform.SetParent(_legendPanel.transform, false);
                 chipGo.AddComponent<Image>().color = terrain[i].color;
@@ -259,10 +261,10 @@ namespace Tactix.Game
             var note = MakeText(_legendPanel.transform, "Note",
                 "Diagonal movement allowed. Move any units, then attack — the first attack ends movement for the whole turn.\nXP: +1 per attack, +2 bonus per kill (no gameplay effect yet).",
                 16, TextAnchor.MiddleCenter);
-            Anchor(note.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, -270), new Vector2(900, 50));
+            Anchor(note.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, -292), new Vector2(900, 50));
 
             var close = MakeButton(_legendPanel.transform, "Close", CloseLegend, new Color(0.32f, 0.32f, 0.38f));
-            Anchor(close.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -325), new Vector2(200, 46));
+            Anchor(close.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -336), new Vector2(200, 44));
         }
 
         private static GameObject MakePanel(Transform parent, string name)

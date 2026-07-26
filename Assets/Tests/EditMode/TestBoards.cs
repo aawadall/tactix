@@ -9,11 +9,16 @@ namespace Tactix.Core.Tests
         public static GameState OpenBoard(int width, int height)
         {
             var terrain = new TerrainType[height][];
+            var elevation = new int[height][];
             for (int y = 0; y < height; y++)
+            {
                 terrain[y] = new TerrainType[width];
+                elevation[y] = new int[width];
+            }
             return new GameState
             {
                 Terrain = terrain,
+                Elevation = elevation,
                 Units = new List<Unit>(),
                 CurrentPlayer = 0,
                 TurnPhase = TurnPhase.Move,
@@ -24,6 +29,12 @@ namespace Tactix.Core.Tests
         public static GameState WithTerrain(this GameState state, TerrainType type, params (int x, int y)[] tiles)
         {
             foreach (var (x, y) in tiles) state.Terrain[y][x] = type;
+            return state;
+        }
+
+        public static GameState WithElevation(this GameState state, int elevation, params (int x, int y)[] tiles)
+        {
+            foreach (var (x, y) in tiles) state.Elevation[y][x] = elevation;
             return state;
         }
 

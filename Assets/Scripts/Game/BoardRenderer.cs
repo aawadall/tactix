@@ -33,6 +33,9 @@ namespace Tactix.Game
                         case TerrainType.Impassable: color = VisualAssets.ImpassableColor; break;
                         default: color = VisualAssets.OpenColor; break;
                     }
+                    // Topographic shading: higher ground renders brighter.
+                    color *= 0.65f + 0.13f * state.ElevationAt(x, y);
+                    color.a = 1f;
                     var tile = MakeSprite($"Tile {x},{y}", VisualAssets.Square, color,
                         new Vector3(x, y, TileZ), new Vector3(0.95f, 0.95f, 1f), sortingOrder: 0);
                     _tiles.Add(tile);

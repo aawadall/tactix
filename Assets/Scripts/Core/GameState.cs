@@ -26,6 +26,15 @@ namespace Tactix.Core
         [JsonProperty("terrain")]
         public TerrainType[][] Terrain { get; set; }
 
+        /// <summary>
+        /// Topographic layer: elevation[y][x] in whole levels (0-3 on the standard
+        /// map), same shape as <see cref="Terrain"/>. Affects movement (steps of
+        /// |Δelev| &gt; 1 are cliffs), combat (+1 damage from higher ground), and
+        /// line of sight (see <see cref="LineOfSight"/>).
+        /// </summary>
+        [JsonProperty("elevation")]
+        public int[][] Elevation { get; set; }
+
         [JsonProperty("units")]
         public List<Unit> Units { get; set; } = new List<Unit>();
 
@@ -55,6 +64,9 @@ namespace Tactix.Core
 
         public TerrainType TerrainAt(int x, int y) => Terrain[y][x];
 
+        /// <summary>Elevation at a tile; 0 when no elevation layer is present (pre-v3 states).</summary>
+        public int ElevationAt(int x, int y) => Elevation != null ? Elevation[y][x] : 0;
+
         public Unit GetUnit(int unitId) => Units.FirstOrDefault(u => u.Id == unitId);
 
         public Unit GetUnitAt(int x, int y) => Units.FirstOrDefault(u => u.X == x && u.Y == y);
@@ -65,9 +77,18 @@ namespace Tactix.Core
             for (int y = 0; y < Terrain.Length; y++)
                 terrain[y] = (TerrainType[])Terrain[y].Clone();
 
+            int[][] elevation = null;
+            if (Elevation != null)
+            {
+                elevation = new int[Elevation.Length][];
+                for (int y = 0; y < Elevation.Length; y++)
+                    elevation[y] = (int[])Elevation[y].Clone();
+            }
+
             return new GameState
             {
                 Terrain = terrain,
+                Elevation = elevation,
                 Units = Units.Select(u => u.Clone()).ToList(),
                 CurrentPlayer = CurrentPlayer,
                 TurnPhase = TurnPhase,

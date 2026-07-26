@@ -144,7 +144,8 @@ namespace Tactix.Core
             attacker.HasAttacked = true;
 
             int defense = next.TerrainAt(target.X, target.Y) == TerrainType.Forest ? 1 : 0;
-            int damage = Math.Max(0, attacker.Stats.AttackPower - defense);
+            int highGround = next.ElevationAt(attacker.X, attacker.Y) > next.ElevationAt(target.X, target.Y) ? 1 : 0;
+            int damage = Math.Max(0, attacker.Stats.AttackPower + highGround - defense);
             target.Hp -= damage;
             attacker.Xp += 1; // display-only in schema v2
 
@@ -193,6 +194,8 @@ namespace Tactix.Core
                     int nx = cx + dx, ny = cy + dy;
                     if (!state.IsInBounds(nx, ny) || visited.Contains((nx, ny))) continue;
                     if (state.TerrainAt(nx, ny) == TerrainType.Impassable) continue;
+                    // Cliffs: a step may climb or descend at most 1 elevation level.
+                    if (Math.Abs(state.ElevationAt(nx, ny) - state.ElevationAt(cx, cy)) > 1) continue;
 
                     var occupant = state.GetUnitAt(nx, ny);
                     if (occupant != null && occupant.Owner != unit.Owner) continue; // enemies block pathing

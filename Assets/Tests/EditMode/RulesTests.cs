@@ -279,6 +279,70 @@ namespace Tactix.Core.Tests
             Assert.AreEqual((1, 1), (legalNext.GetUnit(0).X, legalNext.GetUnit(0).Y));
         }
 
+        // ---------- Elevation (topographic layer) ----------
+
+        [Test]
+        public void Movement_CliffsBlock_StepsOfOneClimb()
+        {
+            var state = TestBoards.OpenBoard(5, 1)
+                .WithElevation(2, (1, 0))
+                .WithUnit(0, 0, UnitType.Infantry, 0, 0);
+            var targets = TestBoards.MoveTargets(state, 0);
+            Assert.IsEmpty(targets); // 0 -> 2 is a cliff and there is no way around
+
+            var ramp = TestBoards.OpenBoard(5, 1)
+                .WithElevation(1, (1, 0))
+                .WithElevation(2, (2, 0))
+                .WithUnit(0, 0, UnitType.Infantry, 0, 0);
+            var rampTargets = TestBoards.MoveTargets(ramp, 0);
+            Assert.IsTrue(rampTargets.Contains((1, 0))); // climb 0 -> 1
+            Assert.IsTrue(rampTargets.Contains((2, 0))); // then 1 -> 2
+        }
+
+        [Test]
+        public void Attack_HighGround_AddsOneDamage_OnlyDownhill()
+        {
+            var downhill = TestBoards.OpenBoard(3, 1)
+                .WithElevation(1, (0, 0))
+                .WithUnit(0, 0, UnitType.Infantry, 0, 0)
+                .WithUnit(1, 1, UnitType.Infantry, 1, 0);
+            var after = Rules.Apply(downhill, new AttackAction { UnitId = 0, TargetUnitId = 1 });
+            Assert.AreEqual(2, after.GetUnit(1).Hp); // 5 - (2 + 1)
+
+            var uphill = TestBoards.OpenBoard(3, 1)
+                .WithElevation(1, (1, 0))
+                .WithUnit(0, 0, UnitType.Infantry, 0, 0)
+                .WithUnit(1, 1, UnitType.Infantry, 1, 0);
+            var afterUp = Rules.Apply(uphill, new AttackAction { UnitId = 0, TargetUnitId = 1 });
+            Assert.AreEqual(3, afterUp.GetUnit(1).Hp); // 5 - 2, no bonus attacking up
+        }
+
+        [Test]
+        public void LineOfSight_HillShootsOverForest_HillBlocksValleyShot()
+        {
+            // Artillery on a hill (elev 2) fires over a valley forest that would
+            // block a flat shot.
+            var fromHill = TestBoards.OpenBoard(4, 1)
+                .WithElevation(2, (0, 0))
+                .WithTerrain(TerrainType.Forest, (1, 0))
+                .WithUnit(0, 0, UnitType.Artillery, 0, 0)
+                .WithUnit(1, 1, UnitType.Infantry, 3, 0);
+            CollectionAssert.AreEquivalent(new[] { 1 }, TestBoards.AttackTargets(fromHill, 0));
+
+            var flat = TestBoards.OpenBoard(4, 1)
+                .WithTerrain(TerrainType.Forest, (1, 0))
+                .WithUnit(0, 0, UnitType.Artillery, 0, 0)
+                .WithUnit(1, 1, UnitType.Infantry, 3, 0);
+            Assert.IsEmpty(TestBoards.AttackTargets(flat, 0));
+
+            // An open elev-2 hill between two valley units blocks the shot.
+            var ridge = TestBoards.OpenBoard(4, 1)
+                .WithElevation(2, (2, 0))
+                .WithUnit(0, 0, UnitType.Artillery, 0, 0)
+                .WithUnit(1, 1, UnitType.Infantry, 3, 0);
+            Assert.IsEmpty(TestBoards.AttackTargets(ridge, 0));
+        }
+
         // ---------- Level config ----------
 
         [Test]
@@ -286,13 +350,17 @@ namespace Tactix.Core.Tests
         {
             var state = LevelConfig.CreateStandardGame();
             int w = state.Width, h = state.Height;
-            Assert.AreEqual(8, w);
-            Assert.AreEqual(8, h);
+            Assert.AreEqual(16, w);
+            Assert.AreEqual(16, h);
 
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < w; x++)
+                {
                     Assert.AreEqual(state.TerrainAt(x, y), state.TerrainAt(w - 1 - x, h - 1 - y),
                         $"terrain not symmetric at ({x},{y})");
+                    Assert.AreEqual(state.ElevationAt(x, y), state.ElevationAt(w - 1 - x, h - 1 - y),
+                        $"elevation not symmetric at ({x},{y})");
+                }
 
             foreach (var unit in state.Units)
             {
@@ -302,13 +370,13 @@ namespace Tactix.Core.Tests
                 Assert.AreEqual(1 - unit.Owner, mirror.Owner);
             }
 
-            Assert.AreEqual(12, state.Units.Count);
+            Assert.AreEqual(16, state.Units.Count);
             foreach (int owner in new[] { 0, 1 })
             {
                 Assert.AreEqual(2, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Infantry));
-                Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.MechInfantry));
+                Assert.AreEqual(2, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.MechInfantry));
                 Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Armor));
-                Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Artillery));
+                Assert.AreEqual(2, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Artillery));
                 Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Recon));
             }
         }
@@ -318,7 +386,42 @@ namespace Tactix.Core.Tests
         {
             var state = LevelConfig.CreateStandardGame();
             foreach (var unit in state.Units)
+            {
                 Assert.AreNotEqual(TerrainType.Impassable, state.TerrainAt(unit.X, unit.Y));
+                Assert.IsFalse(state.Units.Any(o => o != unit && o.X == unit.X && o.Y == unit.Y),
+                    $"units stacked at ({unit.X},{unit.Y})");
+            }
+        }
+
+        [Test]
+        public void StandardLevel_SpawnsAreMutuallyReachable_DespiteCliffs()
+        {
+            // Flood fill with the movement rule (8-dir, no impassable, |Δelev| <= 1)
+            // from player 0's spawn must reach player 1's spawn.
+            var state = LevelConfig.CreateStandardGame();
+            var start = (x: state.Units[0].X, y: state.Units[0].Y);
+            var goalUnit = state.Units.First(u => u.Owner == 1);
+            var goal = (x: goalUnit.X, y: goalUnit.Y);
+
+            var seen = new System.Collections.Generic.HashSet<(int, int)> { start };
+            var queue = new System.Collections.Generic.Queue<(int x, int y)>();
+            queue.Enqueue(start);
+            while (queue.Count > 0)
+            {
+                var (cx, cy) = queue.Dequeue();
+                for (int dx = -1; dx <= 1; dx++)
+                    for (int dy = -1; dy <= 1; dy++)
+                    {
+                        if (dx == 0 && dy == 0) continue;
+                        int nx = cx + dx, ny = cy + dy;
+                        if (!state.IsInBounds(nx, ny) || seen.Contains((nx, ny))) continue;
+                        if (state.TerrainAt(nx, ny) == TerrainType.Impassable) continue;
+                        if (System.Math.Abs(state.ElevationAt(nx, ny) - state.ElevationAt(cx, cy)) > 1) continue;
+                        seen.Add((nx, ny));
+                        queue.Enqueue((nx, ny));
+                    }
+            }
+            Assert.IsTrue(seen.Contains(goal), "player spawns are not connected under the cliff rule");
         }
 
         // ---------- Serialization ----------
@@ -334,7 +437,9 @@ namespace Tactix.Core.Tests
             StringAssert.Contains("\"infantry\"", json);
             StringAssert.Contains("\"mechInfantry\"", json);
             StringAssert.Contains("\"xp\"", json);
+            StringAssert.Contains("\"elevation\"", json);
             StringAssert.Contains("\"turnPhase\"", json);
+            Assert.AreEqual(restored.ElevationAt(7, 8), state.ElevationAt(7, 8));
         }
 
         [Test]

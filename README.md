@@ -46,10 +46,22 @@ recon single slash.
 
 ## Rules summary
 
-- 8x8 board (hardcoded in `LevelConfig` only — the engine is board-size-agnostic).
-  Terrain: open, forest (+1 defense to occupant, blocks line-of-sight),
-  impassable. The layout is fixed and 180°-rotationally symmetric.
-- 2 players × 6 units (2 Infantry, 1 Mechanized Infantry, 1 Armor, 1 Artillery, 1 Recon):
+- 16x16 board (hardcoded in `LevelConfig` only, authored as ASCII layers — the
+  engine is board-size-agnostic). Terrain: open, forest (+1 defense to
+  occupant, blocks line-of-sight), impassable. The layout is fixed and
+  180°-rotationally symmetric.
+- **Topographic layer**: every tile has an elevation (0–3; central peak on a
+  plateau ringed by slopes and valley floors):
+  - *Movement*: a step may climb or descend at most 1 level — bigger steps are
+    cliffs and are blocked (the standard map's slopes are all climbable;
+    spawn-to-spawn connectivity is test-enforced).
+  - *Combat*: attacking from higher ground adds +1 damage.
+  - *Line of sight*: the sight line runs from eye height (elevation + 1) to eye
+    height; a crossed tile blocks iff its effective height — elevation, +1 for
+    forest canopy, +3 for impassable walls — reaches the line over the
+    crossing. Units on hills shoot over valley forests; hills block shots
+    between valleys. On flat ground this reduces exactly to the old rule.
+- 2 players × 8 units (2 Infantry, 2 Mechanized Infantry, 1 Armor, 2 Artillery, 1 Recon):
 
   | Type | Move | Range | Damage | HP | Sight | Needs LOS |
   |---|---|---|---|---|---|---|
@@ -77,7 +89,7 @@ recon single slash.
 - Damage = attacker power − (1 if defender stands in forest), no counterattacks.
   A unit at 0 HP is removed; eliminating all enemy units wins.
 
-## Data schemas (schemaVersion 2)
+## Data schemas (schemaVersion 3)
 
 Everything below is produced by `Tactix.Core` via Newtonsoft.Json and is the
 contract for the future imitation-learning pipeline. **Schema stability matters
@@ -89,6 +101,7 @@ more than anything else here** — change nothing without bumping
 ```json
 {
   "terrain": [[0,0,1,2,0,0,0,0], ...],
+  "elevation": [[0,0,1,2,2,1,0,0], ...],
   "units": [
     {"id":0,"owner":0,"type":"infantry","x":2,"y":1,"hp":5,"xp":0,"hasMoved":false,"hasAttacked":false},
     {"id":4,"owner":0,"type":"artillery","x":3,"y":0,"hp":3,"xp":0,"hasMoved":false,"hasAttacked":false}
@@ -103,6 +116,7 @@ more than anything else here** — change nothing without bumping
 | Field | Meaning |
 |---|---|
 | `terrain` | rows of columns, `terrain[y][x]`; codes: `0` open, `1` forest, `2` impassable. Board size is implied by the array — never fixed. |
+| `elevation` | rows of columns, same shape as `terrain`; whole levels (0–3 on the standard map). Drives cliffs, high-ground bonus, and 3D line of sight. |
 | `units` | variable-length entity list; `type` is `"infantry"` \| `"mechInfantry"` \| `"armor"` \| `"artillery"` \| `"recon"`; `xp` is +1 per attack, +2 more per kill (no gameplay effect in v2); ids are stable for the whole game; dead units are removed from the list. |
 | `currentPlayer` | `0` or `1` |
 | `turnPhase` | `"move"` \| `"attack"` — first attack of a turn switches it; movement is only legal in `"move"`. |
@@ -133,8 +147,9 @@ One file per game — `logs/` sits next to the project root in the editor and
 next to the executable in builds. One JSON object per line, in order:
 
 1. **header** (first line):
-   `{"type":"header","schemaVersion":2,"createdUtc":"<ISO-8601>","mode":"hotseat|vsBot|botVsBot","initialState":<GameState>}`
-   (schemaVersion 1 logs lack `xp` and use the old two-type roster with `"ranged"`.)
+   `{"type":"header","schemaVersion":3,"createdUtc":"<ISO-8601>","mode":"hotseat|vsBot|botVsBot","initialState":<GameState>}`
+   (v2 logs lack `elevation` and used an 8x8 map with 6 units/side; v1 logs
+   also lack `xp` and used a two-type roster with `"ranged"`.)
 2. **step** (one per applied action):
    `{"type":"step","stepIndex":<0-based>,"player":<actor>,"stateBefore":<GameState>,"action":<Action>,"stateAfter":<GameState>}`
    — steps chain: `stateAfter` of step *n* equals `stateBefore` of step *n+1*.
