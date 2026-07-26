@@ -20,6 +20,8 @@ namespace Tactix.Game
         public static readonly Color MoveTint = new Color(0.25f, 0.85f, 0.95f, 0.45f);
         public static readonly Color AttackTint = new Color(1f, 0.15f, 0.10f, 0.50f);
         public static readonly Color ExhaustedMul = new Color(0.55f, 0.55f, 0.55f);
+        public static readonly Color ContourColor = new Color(0.36f, 0.24f, 0.11f);
+        public static readonly Color ElevationDigitColor = new Color(0f, 0f, 0f, 0.55f);
 
         /// <summary>Display names used by the legend and telemetry, matching the symbology.</summary>
         public static string UnitDisplayName(UnitType type)

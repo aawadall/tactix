@@ -244,7 +244,7 @@ namespace Tactix.Game
                 (VisualAssets.OpenColor, "Open — no effect"),
                 (VisualAssets.ForestColor, "Forest — +1 defense to occupant, blocks artillery line of sight"),
                 (VisualAssets.ImpassableColor, "Impassable — blocks movement and line of sight"),
-                (new Color(0.55f, 0.53f, 0.46f), "Elevation 0-3 — lighter tile = higher ground.\nCliffs (2+ steps) block moves; high ground +1 dmg; hills shape sight lines"),
+                (VisualAssets.ContourColor, "Contour lines mark elevation changes (corner digit = height 1-3).\nThick contour = cliff, impassable; high ground +1 dmg; hills shape sight lines"),
             };
             for (int i = 0; i < terrain.Length; i++)
             {

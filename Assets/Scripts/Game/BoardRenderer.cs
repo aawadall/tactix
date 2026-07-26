@@ -15,6 +15,13 @@ namespace Tactix.Game
         private const float UnitZ = -0.2f;
         private const float TextZ = -0.3f;
 
+        // Sprite sorting: tiles < contours/elevation digits < highlights < units < labels.
+        private const int TileOrder = 0;
+        private const int ContourOrder = 1;
+        private const int HighlightOrder = 2;
+        private const int UnitOrder = 3;
+        private const int LabelOrder = 4;
+
         private readonly List<GameObject> _tiles = new List<GameObject>();
         private readonly List<GameObject> _highlights = new List<GameObject>();
         private readonly List<GameObject> _unitObjects = new List<GameObject>();
@@ -33,14 +40,86 @@ namespace Tactix.Game
                         case TerrainType.Impassable: color = VisualAssets.ImpassableColor; break;
                         default: color = VisualAssets.OpenColor; break;
                     }
-                    // Topographic shading: higher ground renders brighter.
-                    color *= 0.65f + 0.13f * state.ElevationAt(x, y);
-                    color.a = 1f;
+                    // Full-size tiles: the terrain reads as one continuous map, so
+                    // contour lines are the dominant linework.
                     var tile = MakeSprite($"Tile {x},{y}", VisualAssets.Square, color,
-                        new Vector3(x, y, TileZ), new Vector3(0.95f, 0.95f, 1f), sortingOrder: 0);
+                        new Vector3(x, y, TileZ), Vector3.one, TileOrder);
                     _tiles.Add(tile);
+
+                    int elev = state.ElevationAt(x, y);
+                    if (elev > 0) _tiles.Add(MakeElevationDigit(x, y, elev));
                 }
             }
+            BuildGridLines(state);
+            BuildContourLines(state);
+        }
+
+        /// <summary>A faint reference grid so tile boundaries stay readable.</summary>
+        private void BuildGridLines(GameState state)
+        {
+            var color = new Color(0f, 0f, 0f, 0.14f);
+            float cx = (state.Width - 1) / 2f;
+            float cy = (state.Height - 1) / 2f;
+            for (int x = 0; x <= state.Width; x++)
+                _tiles.Add(MakeSprite($"GridV {x}", VisualAssets.Square, color,
+                    new Vector3(x - 0.5f, cy, HighlightZ), new Vector3(0.02f, state.Height, 1f), TileOrder));
+            for (int y = 0; y <= state.Height; y++)
+                _tiles.Add(MakeSprite($"GridH {y}", VisualAssets.Square, color,
+                    new Vector3(cx, y - 0.5f, HighlightZ), new Vector3(state.Width, 0.02f, 1f), TileOrder));
+        }
+
+        /// <summary>
+        /// Topographic contour lines: a segment along every tile edge where the
+        /// elevation changes, drawn thicker where the step is 2+ (a cliff).
+        /// </summary>
+        private void BuildContourLines(GameState state)
+        {
+            for (int y = 0; y < state.Height; y++)
+            {
+                for (int x = 0; x < state.Width; x++)
+                {
+                    int here = state.ElevationAt(x, y);
+                    if (x + 1 < state.Width)
+                    {
+                        int diff = Mathf.Abs(state.ElevationAt(x + 1, y) - here);
+                        if (diff > 0) AddContourSegment(x + 0.5f, y, vertical: true, cliff: diff >= 2);
+                    }
+                    if (y + 1 < state.Height)
+                    {
+                        int diff = Mathf.Abs(state.ElevationAt(x, y + 1) - here);
+                        if (diff > 0) AddContourSegment(x, y + 0.5f, vertical: false, cliff: diff >= 2);
+                    }
+                }
+            }
+        }
+
+        private void AddContourSegment(float x, float y, bool vertical, bool cliff)
+        {
+            float thickness = cliff ? 0.20f : 0.09f;
+            var scale = vertical
+                ? new Vector3(thickness, 1.02f, 1f)
+                : new Vector3(1.02f, thickness, 1f);
+            _tiles.Add(MakeSprite($"Contour {x},{y}", VisualAssets.Square, VisualAssets.ContourColor,
+                new Vector3(x, y, HighlightZ), scale, ContourOrder));
+        }
+
+        private GameObject MakeElevationDigit(int x, int y, int elev)
+        {
+            var go = new GameObject($"Elev {x},{y}");
+            go.transform.SetParent(transform, false);
+            go.transform.position = new Vector3(x - 0.30f, y + 0.30f, HighlightZ);
+            var text = go.AddComponent<TextMesh>();
+            text.text = elev.ToString();
+            text.font = VisualAssets.UiFont;
+            text.fontSize = 48;
+            text.characterSize = 0.052f;
+            text.anchor = TextAnchor.MiddleCenter;
+            text.alignment = TextAlignment.Center;
+            text.color = VisualAssets.ElevationDigitColor;
+            var renderer = go.GetComponent<MeshRenderer>();
+            renderer.sharedMaterial = VisualAssets.UiFont.material;
+            renderer.sortingOrder = ContourOrder;
+            return go;
         }
 
         public void RenderUnits(GameState state)
@@ -55,7 +134,7 @@ namespace Tactix.Game
 
                 var sprite = VisualAssets.UnitSymbol(unit.Type, unit.Owner);
                 var go = MakeSprite($"Unit {unit.Id}", sprite, tint,
-                    new Vector3(unit.X, unit.Y - 0.06f, UnitZ), Vector3.one, sortingOrder: 2);
+                    new Vector3(unit.X, unit.Y - 0.06f, UnitZ), Vector3.one, UnitOrder);
 
                 var textGo = new GameObject("Hp");
                 textGo.transform.SetParent(go.transform, false);
@@ -70,7 +149,7 @@ namespace Tactix.Game
                 text.color = Color.white;
                 var textRenderer = textGo.GetComponent<MeshRenderer>();
                 textRenderer.sharedMaterial = VisualAssets.UiFont.material;
-                textRenderer.sortingOrder = 3;
+                textRenderer.sortingOrder = LabelOrder;
 
                 _unitObjects.Add(go);
             }
@@ -106,7 +185,7 @@ namespace Tactix.Game
         private void AddHighlight(int x, int y, Color color)
         {
             var go = MakeSprite($"Highlight {x},{y}", VisualAssets.Square, color,
-                new Vector3(x, y, HighlightZ), new Vector3(0.95f, 0.95f, 1f), sortingOrder: 1);
+                new Vector3(x, y, HighlightZ), new Vector3(0.95f, 0.95f, 1f), HighlightOrder);
             _highlights.Add(go);
         }
 
