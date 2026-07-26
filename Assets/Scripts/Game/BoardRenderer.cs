@@ -288,6 +288,42 @@ namespace Tactix.Game
             }
         }
 
+        /// <summary>
+        /// Draws a unit's capability envelopes (attack / support / sight) as thin
+        /// circles. Used by the Field Manual to make the raw numbers legible.
+        /// </summary>
+        public void SetCapabilityRings(Unit unit)
+        {
+            if (unit == null) return;
+            var stats = unit.Stats;
+            var centre = new Vector2((float)unit.X, (float)unit.Y);
+
+            if (stats.Sight > 0)
+                DrawCircleOutline(centre, (float)stats.Sight, 0.05f, new Color(1f, 1f, 1f, 0.45f));
+            if (stats.CanAttack)
+                DrawCircleOutline(centre, (float)stats.AttackRange, 0.07f, new Color(1f, 0.25f, 0.2f, 0.9f));
+            if (stats.CanSupport)
+                DrawCircleOutline(centre, (float)stats.SupportRange, 0.07f, new Color(0.3f, 0.95f, 0.45f, 0.9f));
+        }
+
+        /// <summary>Circle outline built from rotated quads, so thickness stays constant in world units.</summary>
+        private void DrawCircleOutline(Vector2 centre, float radius, float thickness, Color color)
+        {
+            int segments = Mathf.Clamp(Mathf.RoundToInt(radius * 24f), 24, 160);
+            float step = 2f * Mathf.PI / segments;
+            float chord = 2f * radius * Mathf.Sin(step / 2f);
+
+            for (int i = 0; i < segments; i++)
+            {
+                float angle = (i + 0.5f) * step;
+                var point = centre + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius;
+                float rotation = (angle + Mathf.PI / 2f) * Mathf.Rad2Deg;
+                _overlays.Add(MakeSprite("RangeRing", VisualAssets.Square, color,
+                    new Vector3(point.x, point.y, OverlayZ),
+                    new Vector3(chord + thickness, thickness, 1f), rotation, ContourOrder));
+            }
+        }
+
         public void ClearHighlights()
         {
             ClearOverlays();

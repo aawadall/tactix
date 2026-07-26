@@ -292,6 +292,59 @@ later robustness experiment rather than a launch feature.
 
 ---
 
+## 6. A 3D view
+
+**Status:** proposed, and the recommendation is **don't** — at least not as a
+full 3D renderer. **Size:** large. **Schema:** none; rendering is entirely
+downstream of the game state.
+
+### The case for it
+
+Elevation is the one thing the current presentation asks you to *read* rather
+than see. Contour lines are honest and precise, but they take a moment to
+interpret: a player has to trace the isolines and the spot heights to work out
+that a ridge blocks their artillery. A tilted 3D view would make relief and
+sight lines immediately obvious.
+
+### The case against it
+
+- **The symbology is 2D by nature.** NATO APP-6 symbols are map notation. Tilted,
+  extruded, or billboarded in a perspective view they stop reading as a military
+  map and start reading as an unfinished 3D game.
+- **Occlusion hurts a tactics game.** The moment terrain has height in screen
+  space, hills hide units behind them. Every 3D tactics game then spends effort
+  fighting its own camera — transparency on intervening geometry, unit
+  silhouettes through terrain, free camera rotation, edge-scrolling. That is a
+  large amount of work whose main purpose is to undo a problem the top-down view
+  does not have.
+- **It contributes nothing to the actual goal.** The state is coordinates and the
+  training data is JSON; the renderer is not part of the ML pipeline. Every hour
+  spent on a 3D camera is an hour not spent on spotting, objectives, or fog.
+- **It needs an art pipeline.** Everything currently drawn is procedural, with no
+  asset files at all. Models, materials, and lighting would end that property.
+
+### The middle grounds, if elevation legibility is the real problem
+
+Ordered cheapest first:
+
+1. **Hillshade under the contours** — shade the terrain by the slope's angle to a
+   fixed light direction. One pass over the elevation raster, no new systems, and
+   relief becomes readable at a glance. Note this is *not* the flat per-tile
+   elevation tinting that was tried and rejected earlier; hillshade responds to
+   slope direction, which is what makes it read as shape rather than as a legend.
+2. **A tilt toggle** — keep the game top-down, but let a key tilt the orthographic
+   camera 30-40° and extrude the terrain into prisms by elevation, purely as a
+   look-around view. No gameplay in that mode, so occlusion never matters.
+3. **Elevation-offset rendering** — draw units and their tiles offset vertically
+   by a few pixels per elevation level, with a drop shadow. Cheap fake depth that
+   keeps the map flat and unambiguous.
+
+**Recommendation:** option 1, and only if players actually report that reading
+the relief is hard. Full 3D is a presentation rewrite in exchange for something
+the contour lines already communicate correctly.
+
+---
+
 ## Suggested sequence
 
 | # | Feature | Why here | Size |

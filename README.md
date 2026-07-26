@@ -41,6 +41,13 @@ generated map is written into the log header, so any game can be reproduced.
 The window is resizable and maximizable (F11 or Alt+Enter toggles fullscreen);
 the board reframes itself on any resize.
 
+**Field Manual** (main menu): a page per unit type showing that unit on a
+demonstration board with its real movement region, attack/support/sight
+envelopes, and live target rings, beside notes on its role. Every overlay is
+drawn from the rules engine — `Rules.GetMoveRegion`, `GetLegalAttacks`,
+`GetLegalHeals` — so the manual cannot drift out of step with the rules. Browse
+with ← →, leave with Esc.
+
 In game: click a friendly unit to select it — the cyan region is everywhere it
 can dash to and red rings mark enemies it can attack, both straight from the
 rules engine. Click anywhere in the region to move there (a click outside it is

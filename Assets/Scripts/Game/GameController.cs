@@ -1,5 +1,6 @@
 using System.Collections;
 using System.IO;
+using System.Linq;
 using Tactix.Core;
 using UnityEngine;
 
@@ -30,7 +31,11 @@ namespace Tactix.Game
         /// <summary>When set, each new game is played on a freshly generated map.</summary>
         public bool UseRandomMap { get; private set; }
 
+        /// <summary>True while the Field Manual is showing instead of a game.</summary>
+        public bool InFieldManual { get; private set; }
+
         private int? _mapSeed;
+        private int _manualTypeIndex;
 
         private BoardRenderer _board;
         private InputController _input;
@@ -43,7 +48,7 @@ namespace Tactix.Game
         private int _framedHeight;
 
         public bool IsHumanTurn =>
-            GameStarted && State.Winner == null &&
+            GameStarted && !InFieldManual && State.Winner == null &&
             (Mode == GameMode.Hotseat || (Mode == GameMode.VsBot && State.CurrentPlayer == 0));
 
         public bool CanAcceptInput => IsHumanTurn;
@@ -114,16 +119,24 @@ namespace Tactix.Game
         private const float BottomMargin = 1.6f;
         private const float SideMargin = 0.8f;
 
+        /// <summary>Share of the viewport reserved for the Field Manual's side panel.</summary>
+        private const float ManualPanelShare = 0.34f;
+
         private void FrameBoard()
         {
             var cam = Camera.main;
             float cx = (State.Width - 1) / 2f;
             float cy = (State.Height - 1) / 2f;
 
+            float usableWidthShare = InFieldManual ? 1f - ManualPanelShare : 1f;
             float halfHeight = (State.Height + TopMargin + BottomMargin) / 2f;
-            float halfWidth = (State.Width + 2f * SideMargin) / (2f * cam.aspect);
+            float halfWidth = (State.Width + 2f * SideMargin) / (2f * cam.aspect * usableWidthShare);
             cam.orthographicSize = Mathf.Max(halfHeight, halfWidth);
-            cam.transform.position = new Vector3(cx, cy + (TopMargin - BottomMargin) / 2f, -10f);
+
+            // Shift the view right so the board sits in the free part of the screen.
+            float viewportWorldWidth = 2f * cam.orthographicSize * cam.aspect;
+            float shift = InFieldManual ? viewportWorldWidth * (ManualPanelShare / 2f) : 0f;
+            cam.transform.position = new Vector3(cx + shift, cy + (TopMargin - BottomMargin) / 2f, -10f);
 
             _framedWidth = Screen.width;
             _framedHeight = Screen.height;
@@ -256,12 +269,75 @@ namespace Tactix.Game
                 Screen.fullScreen = !Screen.fullScreen;
             }
 
+            if (InFieldManual)
+            {
+                if (Input.GetKeyDown(KeyCode.RightArrow)) CycleFieldManual(1);
+                if (Input.GetKeyDown(KeyCode.LeftArrow)) CycleFieldManual(-1);
+                if (Input.GetKeyDown(KeyCode.Escape)) CloseFieldManual();
+                return;
+            }
+
             if (Input.GetKeyDown(KeyCode.Escape))
             {
                 if (_ui.LegendOpen) _ui.CloseLegend();
                 else if (GameStarted) BackToMenu(); // aborts the game (logger writes an incomplete-result line)
                 else QuitGame();
             }
+        }
+
+        // ---------- field manual ----------
+
+        /// <summary>
+        /// Opens the Field Manual: a demonstration board per unit type with the
+        /// unit's real movement region and range envelopes drawn on it.
+        /// </summary>
+        public void ShowFieldManual()
+        {
+            EndLoggerIfOpen();
+            InFieldManual = true;
+            _mapSeed = null;
+            _input.ClearSelection();
+            _ui.HidePanels();
+            _ui.CloseLegend();
+            RenderFieldManualPage();
+        }
+
+        public void CycleFieldManual(int delta)
+        {
+            if (!InFieldManual) return;
+            int count = UnitStats.AllTypes.Length;
+            _manualTypeIndex = ((_manualTypeIndex + delta) % count + count) % count;
+            RenderFieldManualPage();
+        }
+
+        public void CloseFieldManual()
+        {
+            InFieldManual = false;
+            State = null;
+            _board.Clear();
+            _ui.HideFieldManual();
+            _ui.ShowModeSelect();
+        }
+
+        private void RenderFieldManualPage()
+        {
+            var type = UnitStats.AllTypes[_manualTypeIndex];
+            State = FieldManual.BuildDemoState(type);
+            FrameBoard();
+            _board.BuildTerrain(State);
+            _board.RenderUnits(State);
+
+            var subject = State.GetUnit(FieldManual.ShowcaseUnitId);
+            _board.SetMoveRegion(subject, Rules.GetMoveRegion(State, subject.Id));
+
+            var attackTargets = Rules.GetLegalAttacks(State, subject.Id)
+                .Select(a => State.GetUnit(a.TargetUnitId)).Where(u => u != null).ToList();
+            var healTargets = Rules.GetLegalHeals(State, subject.Id)
+                .Select(h => State.GetUnit(h.TargetUnitId)).Where(u => u != null).ToList();
+            _board.SetSelection(subject, attackTargets, healTargets);
+            _board.SetCapabilityRings(subject);
+
+            _ui.ShowFieldManual(type, _manualTypeIndex + 1, UnitStats.AllTypes.Length);
         }
 
         /// <summary>Toggles between the fixed standard map and freshly generated ones.</summary>
@@ -299,6 +375,18 @@ namespace Tactix.Game
             yield return new WaitForSeconds(0.5f);
             ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, "shot_legend.png"));
             yield return new WaitForSeconds(0.5f);
+            _ui.CloseLegend();
+
+            // Field Manual pages, one capture per unit type.
+            ShowFieldManual();
+            for (int i = 0; i < UnitStats.AllTypes.Length; i++)
+            {
+                yield return new WaitForSeconds(0.4f);
+                ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(dir, $"shot_manual_{i}.png"));
+                yield return new WaitForSeconds(0.4f);
+                CycleFieldManual(1);
+            }
+            yield return new WaitForSeconds(0.4f);
             QuitGame();
         }
 

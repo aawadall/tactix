@@ -24,6 +24,11 @@ namespace Tactix.Game
         private GameObject _telemetryPanel;
         private Text _telemetryText;
         private Text _mapButtonLabel;
+        private GameObject _manualPanel;
+        private Text _manualTitle;
+        private Text _manualStats;
+        private Text _manualBody;
+        private Text _manualKey;
 
         public bool LegendOpen => _legendPanel != null && _legendPanel.activeSelf;
 
@@ -62,6 +67,44 @@ namespace Tactix.Game
             _endTurnButton.SetActive(false);
             HideTelemetry();
             _winText.text = $"Player {winner + 1} ({PlayerName(winner)}) wins!";
+        }
+
+        // ---------- field manual ----------
+
+        public void ShowFieldManual(UnitType type, int page, int pageCount)
+        {
+            var s = UnitStats.For(type);
+            _modePanel.SetActive(false);
+            _winPanel.SetActive(false);
+            _legendPanel.SetActive(false);
+            _endTurnButton.SetActive(false);
+            _legendButton.SetActive(false);
+            HideTelemetry();
+            _banner.text = "";
+
+            _manualPanel.SetActive(true);
+            _manualTitle.text = $"{VisualAssets.UnitDisplayName(type)}   ({page}/{pageCount})";
+
+            var stats = new StringBuilder();
+            stats.AppendLine($"Move {s.MoveRange:0.#}     HP {s.MaxHp}     Sight {s.Sight:0.#}");
+            stats.AppendLine(s.CanAttack
+                ? $"Damage {s.AttackPower}     Range {s.AttackRange:0.#}{(s.RequiresLineOfSight ? "  (needs line of sight)" : "")}"
+                : "Unarmed");
+            if (s.CanSupport)
+            {
+                string treats = s.Supports == SupportTarget.Vehicles ? "vehicles" : "dismounted units";
+                stats.AppendLine($"Restores +{s.SupportPower} HP to {treats} at range {s.SupportRange:0.#}");
+            }
+            stats.Append(s.IsVehicle ? "Classed as a vehicle" : "Classed as dismounted");
+            _manualStats.text = stats.ToString();
+
+            _manualBody.text = FieldManual.Description(type);
+            _manualKey.text = FieldManual.OverlayKey;
+        }
+
+        public void HideFieldManual()
+        {
+            if (_manualPanel != null) _manualPanel.SetActive(false);
         }
 
         /// <summary>Keeps the map-source button's label in step with the setting.</summary>
@@ -166,10 +209,12 @@ namespace Tactix.Game
             BuildModePanel(canvasGo.transform);
             BuildWinPanel(canvasGo.transform);
             BuildLegendPanel(canvasGo.transform);
+            BuildFieldManualPanel(canvasGo.transform);
 
             _modePanel.SetActive(false);
             _winPanel.SetActive(false);
             _legendPanel.SetActive(false);
+            _manualPanel.SetActive(false);
             _telemetryPanel.SetActive(false);
             _endTurnButton.SetActive(false);
             _legendButton.SetActive(false);
@@ -200,10 +245,10 @@ namespace Tactix.Game
         private void BuildModePanel(Transform canvas)
         {
             _modePanel = MakePanel(canvas, "ModePanel");
-            var title = MakeText(_modePanel.transform, "Title", "TACTIX", 48, TextAnchor.MiddleCenter);
-            Anchor(title.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, 185), new Vector2(600, 70));
+            var title = MakeText(_modePanel.transform, "Title", "TACTIX", 46, TextAnchor.MiddleCenter);
+            Anchor(title.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, 210), new Vector2(600, 66));
             var subtitle = MakeText(_modePanel.transform, "Subtitle", "turn-based tactics — pick a mode", 20, TextAnchor.MiddleCenter);
-            Anchor(subtitle.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, 130), new Vector2(600, 30));
+            Anchor(subtitle.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, 162), new Vector2(600, 30));
 
             string[] labels = { "Hotseat (2 players)", "Vs Random Bot", "Bot vs Bot (self-play)" };
             GameMode[] modes = { GameMode.Hotseat, GameMode.VsBot, GameMode.BotVsBot };
@@ -220,14 +265,17 @@ namespace Tactix.Game
             _mapButtonLabel = mapButton.GetComponentInChildren<Text>();
             RefreshMapButton();
 
-            var legend = MakeButton(_modePanel.transform, "Unit Legend", ToggleLegend, new Color(0.32f, 0.32f, 0.38f));
-            Anchor(legend.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -210), new Vector2(320, 56));
+            var manual = MakeButton(_modePanel.transform, "Field Manual", () => _game.ShowFieldManual(), new Color(0.32f, 0.32f, 0.38f));
+            Anchor(manual.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -210), new Vector2(320, 56));
+
+            var legend = MakeButton(_modePanel.transform, "Quick Legend", ToggleLegend, new Color(0.32f, 0.32f, 0.38f));
+            Anchor(legend.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -278), new Vector2(320, 56));
 
             var quit = MakeButton(_modePanel.transform, "Quit", () => _game.QuitGame(), new Color(0.5f, 0.24f, 0.22f));
-            Anchor(quit.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -278), new Vector2(320, 56));
+            Anchor(quit.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -346), new Vector2(320, 56));
 
             var hint = MakeText(_modePanel.transform, "Hint", "Esc: back / quit   •   L: legend   •   F11: fullscreen   •   right-click: deselect", 15, TextAnchor.MiddleCenter);
-            Anchor(hint.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, -330), new Vector2(800, 28));
+            Anchor(hint.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, 122), new Vector2(800, 28));
         }
 
         private void BuildWinPanel(Transform canvas)
@@ -307,6 +355,58 @@ namespace Tactix.Game
 
             var close = MakeButton(_legendPanel.transform, "Close", CloseLegend, new Color(0.32f, 0.32f, 0.38f));
             Anchor(close.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -322), new Vector2(200, 42));
+        }
+
+        /// <summary>
+        /// Side panel for the Field Manual. The demonstration board renders in the
+        /// world behind it, so this only occupies the right-hand margin.
+        /// </summary>
+        private void BuildFieldManualPanel(Transform canvas)
+        {
+            _manualPanel = new GameObject("FieldManualPanel");
+            _manualPanel.transform.SetParent(canvas, false);
+            var rect = _manualPanel.AddComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+
+            var card = new GameObject("Card");
+            card.transform.SetParent(_manualPanel.transform, false);
+            card.AddComponent<Image>().color = new Color(0.05f, 0.05f, 0.07f, 0.93f);
+            Anchor(card.GetComponent<RectTransform>(), new Vector2(1f, 0.5f), new Vector2(-16, 0), new Vector2(420, 640));
+
+            var header = MakeText(card.transform, "Header", "FIELD MANUAL", 16, TextAnchor.UpperLeft);
+            header.color = new Color(0.65f, 0.72f, 0.85f);
+            Anchor(header.rectTransform, new Vector2(0f, 1f), new Vector2(22, -18), new Vector2(380, 22));
+
+            _manualTitle = MakeText(card.transform, "Title", "", 24, TextAnchor.UpperLeft);
+            Anchor(_manualTitle.rectTransform, new Vector2(0f, 1f), new Vector2(22, -44), new Vector2(380, 34));
+
+            _manualStats = MakeText(card.transform, "Stats", "", 16, TextAnchor.UpperLeft);
+            _manualStats.color = new Color(0.85f, 0.90f, 1f);
+            Anchor(_manualStats.rectTransform, new Vector2(0f, 1f), new Vector2(22, -86), new Vector2(380, 90));
+
+            _manualBody = MakeText(card.transform, "Body", "", 16, TextAnchor.UpperLeft);
+            _manualBody.horizontalOverflow = HorizontalWrapMode.Wrap;
+            Anchor(_manualBody.rectTransform, new Vector2(0f, 1f), new Vector2(22, -186), new Vector2(376, 330));
+
+            var prev = MakeButton(card.transform, "< Prev", () => _game.CycleFieldManual(-1), new Color(0.30f, 0.30f, 0.46f));
+            Anchor(prev.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(22, 74), new Vector2(120, 44));
+
+            var next = MakeButton(card.transform, "Next >", () => _game.CycleFieldManual(1), new Color(0.30f, 0.30f, 0.46f));
+            Anchor(next.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(150, 74), new Vector2(120, 44));
+
+            var back = MakeButton(card.transform, "Back", () => _game.CloseFieldManual(), new Color(0.32f, 0.32f, 0.38f));
+            Anchor(back.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(278, 74), new Vector2(120, 44));
+
+            var hint = MakeText(card.transform, "Hint", "← → to browse   •   Esc to go back", 14, TextAnchor.UpperLeft);
+            hint.color = new Color(0.7f, 0.7f, 0.75f);
+            Anchor(hint.rectTransform, new Vector2(0f, 0f), new Vector2(22, 44), new Vector2(380, 22));
+
+            _manualKey = MakeText(_manualPanel.transform, "OverlayKey", "", 15, TextAnchor.LowerCenter);
+            _manualKey.horizontalOverflow = HorizontalWrapMode.Wrap;
+            Anchor(_manualKey.rectTransform, new Vector2(0.5f, 0f), new Vector2(-120, 16), new Vector2(880, 60));
         }
 
         private static GameObject MakePanel(Transform parent, string name)
