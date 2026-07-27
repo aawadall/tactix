@@ -31,6 +31,25 @@ namespace Tactix.Game
         public static readonly Color RockInk = new Color(0.38f, 0.34f, 0.30f, 0.8f);
         public static readonly Color ObjectiveInk = new Color(0.62f, 0.22f, 0.18f, 0.9f);
 
+        // ---------- C&C / industrial HUD theme ----------
+        public static readonly Color HudPanel = new Color(0.12f, 0.13f, 0.10f, 0.96f);
+        public static readonly Color HudPanelInner = new Color(0.16f, 0.17f, 0.13f, 1f);
+        public static readonly Color HudBevelLight = new Color(0.38f, 0.40f, 0.30f, 0.9f);
+        public static readonly Color HudBevelDark = new Color(0.05f, 0.06f, 0.04f, 0.95f);
+        public static readonly Color HudAccent = new Color(0.78f, 0.66f, 0.29f, 1f);      // amber
+        public static readonly Color HudAccentGreen = new Color(0.49f, 0.78f, 0.31f, 1f);
+        public static readonly Color HudBody = new Color(0.92f, 0.90f, 0.78f, 1f);
+        public static readonly Color HudMuted = new Color(0.55f, 0.58f, 0.45f, 1f);
+        public static readonly Color HudButton = new Color(0.18f, 0.20f, 0.15f, 1f);
+        public static readonly Color HudButtonHot = new Color(0.28f, 0.26f, 0.14f, 1f);
+        public static readonly Color HudButtonDanger = new Color(0.42f, 0.18f, 0.14f, 1f);
+        public static readonly Color HudButtonPrimary = new Color(0.22f, 0.32f, 0.16f, 1f);
+        public static readonly Color HudDisabled = new Color(0.28f, 0.30f, 0.26f, 0.7f);
+        public static readonly Color HudMapBezel = new Color(0.14f, 0.15f, 0.12f, 0.98f);
+        public static readonly Color HudMenuPanel = new Color(0.12f, 0.13f, 0.10f, 0.58f);
+        public static readonly Color HudHpFill = new Color(0.55f, 0.78f, 0.28f, 1f);
+        public static readonly Color HudHpBack = new Color(0.22f, 0.18f, 0.12f, 1f);
+
         /// <summary>The branch name alone, without a size ("Infantry", "Medical").</summary>
         public static string UnitTypeName(UnitType type)
         {
