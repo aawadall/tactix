@@ -22,8 +22,14 @@ namespace Tactix.Game
         public static readonly Color AttackTint = new Color(1f, 0.20f, 0.15f, 0.95f);
         public static readonly Color HealTint = new Color(0.30f, 0.95f, 0.45f, 0.95f);
         public static readonly Color ExhaustedMul = new Color(0.55f, 0.55f, 0.55f);
-        public static readonly Color ContourColor = new Color(0.36f, 0.24f, 0.11f);
-        public static readonly Color ElevationDigitColor = new Color(0.30f, 0.19f, 0.07f, 0.85f);
+        public static readonly Color ContourColor = new Color(0.42f, 0.32f, 0.20f, 0.78f);
+        public static readonly Color ElevationDigitColor = new Color(0.35f, 0.24f, 0.12f, 0.8f);
+        public static readonly Color PaperColor = new Color(0.96f, 0.93f, 0.85f);
+        public static readonly Color ElevationWashLow = new Color(0.96f, 0.93f, 0.85f, 0f);
+        public static readonly Color ElevationWashHigh = new Color(0.72f, 0.58f, 0.40f, 0.28f);
+        public static readonly Color ForestInk = new Color(0.22f, 0.40f, 0.26f, 0.72f);
+        public static readonly Color RockInk = new Color(0.38f, 0.34f, 0.30f, 0.8f);
+        public static readonly Color ObjectiveInk = new Color(0.62f, 0.22f, 0.18f, 0.9f);
 
         /// <summary>The branch name alone, without a size ("Infantry", "Medical").</summary>
         public static string UnitTypeName(UnitType type)
@@ -48,6 +54,10 @@ namespace Tactix.Game
 
         private static Sprite _square;
         private static Sprite _ring;
+        private static Sprite _paper;
+        private static Sprite _forestSymbol;
+        private static Sprite _rockSymbol;
+        private static Sprite _objectiveSymbol;
         private static Material _shapeMaterial;
         private static readonly Dictionary<(UnitType, int, Echelon), Sprite> _symbols =
             new Dictionary<(UnitType, int, Echelon), Sprite>();
@@ -107,6 +117,131 @@ namespace Tactix.Game
                     _square = Sprite.Create(tex, new Rect(0, 0, 4, 4), new Vector2(0.5f, 0.5f), 4f);
                 }
                 return _square;
+            }
+        }
+
+        /// <summary>Parchment sheet with soft grain (tiled under the board).</summary>
+        public static Sprite Paper
+        {
+            get
+            {
+                if (_paper == null)
+                {
+                    const int s = 256;
+                    var px = new Color32[s * s];
+                    for (int y = 0; y < s; y++)
+                        for (int x = 0; x < s; x++)
+                        {
+                            // Deterministic soft grain (no Unity.Random — keep stable across runs).
+                            int n = (x * 374761393 + y * 668265263) ^ ((x * y) << 3);
+                            n = (n ^ (n >> 13)) * 1274126177;
+                            float grain = ((n & 255) / 255f - 0.5f) * 0.07f;
+                            float edge = Mathf.Min(x, y, s - 1 - x, s - 1 - y) / 24f;
+                            float vignette = Mathf.Clamp01(edge) * 0.04f;
+                            float v = 0.94f + grain - vignette;
+                            byte b = (byte)Mathf.Clamp(Mathf.RoundToInt(v * 255f), 220, 255);
+                            byte g = (byte)Mathf.Clamp(b - 6, 200, 255);
+                            byte r = (byte)Mathf.Clamp(b + 4, 220, 255);
+                            px[y * s + x] = new Color32(r, g, b, 255);
+                        }
+                    var tex = new Texture2D(s, s, TextureFormat.RGBA32, false)
+                    {
+                        filterMode = FilterMode.Bilinear,
+                        wrapMode = TextureWrapMode.Repeat,
+                    };
+                    tex.SetPixels32(px);
+                    tex.Apply();
+                    _paper = Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), s);
+                }
+                return _paper;
+            }
+        }
+
+        /// <summary>Classic topo woodland mark: thin pine (line art), not a filled blob.</summary>
+        public static Sprite ForestSymbol
+        {
+            get
+            {
+                if (_forestSymbol == null)
+                {
+                    const int s = 64;
+                    var px = new Color32[s * s];
+                    Color32 ink = new Color32(255, 255, 255, 255);
+                    // Stem
+                    DrawThickLine(px, s, s, 32, 10, 32, 28, 1, ink);
+                    // Tiered canopy (open chevrons)
+                    DrawThickLine(px, s, s, 18, 28, 32, 44, 2, ink);
+                    DrawThickLine(px, s, s, 46, 28, 32, 44, 2, ink);
+                    DrawThickLine(px, s, s, 14, 22, 32, 36, 2, ink);
+                    DrawThickLine(px, s, s, 50, 22, 32, 36, 2, ink);
+                    DrawThickLine(px, s, s, 22, 16, 32, 28, 1, ink);
+                    DrawThickLine(px, s, s, 42, 16, 32, 28, 1, ink);
+                    var tex = new Texture2D(s, s, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+                    tex.SetPixels32(px);
+                    tex.Apply();
+                    _forestSymbol = Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.35f), s);
+                }
+                return _forestSymbol;
+            }
+        }
+
+        /// <summary>Rock / cliff mark: small peak outline (topo scree language).</summary>
+        public static Sprite RockSymbol
+        {
+            get
+            {
+                if (_rockSymbol == null)
+                {
+                    const int s = 64;
+                    var px = new Color32[s * s];
+                    Color32 ink = new Color32(255, 255, 255, 255);
+                    // Main peak
+                    DrawThickLine(px, s, s, 12, 18, 32, 48, 2, ink);
+                    DrawThickLine(px, s, s, 52, 18, 32, 48, 2, ink);
+                    DrawThickLine(px, s, s, 12, 18, 52, 18, 2, ink);
+                    // Side outcrop
+                    DrawThickLine(px, s, s, 40, 18, 50, 34, 1, ink);
+                    DrawThickLine(px, s, s, 58, 18, 50, 34, 1, ink);
+                    var tex = new Texture2D(s, s, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+                    tex.SetPixels32(px);
+                    tex.Apply();
+                    _rockSymbol = Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.3f), s);
+                }
+                return _rockSymbol;
+            }
+        }
+
+        /// <summary>Objective / control-point mark: ring with centre tick.</summary>
+        public static Sprite ObjectiveSymbol
+        {
+            get
+            {
+                if (_objectiveSymbol == null)
+                {
+                    const int s = 64;
+                    var px = new Color32[s * s];
+                    Color32 ink = new Color32(255, 255, 255, 255);
+                    float outer = 24f, inner = 20f;
+                    int c = s / 2;
+                    for (int y = 0; y < s; y++)
+                        for (int x = 0; x < s; x++)
+                        {
+                            float dx = x - c + 0.5f, dy = y - c + 0.5f;
+                            float d = Mathf.Sqrt(dx * dx + dy * dy);
+                            if ((d <= outer && d >= inner) || d <= 3.5f)
+                                px[y * s + x] = ink;
+                        }
+                    // Cross ticks
+                    DrawThickLine(px, s, s, c, c + 18, c, c + 28, 1, ink);
+                    DrawThickLine(px, s, s, c, c - 18, c, c - 28, 1, ink);
+                    DrawThickLine(px, s, s, c + 18, c, c + 28, c, 1, ink);
+                    DrawThickLine(px, s, s, c - 18, c, c - 28, c, 1, ink);
+                    var tex = new Texture2D(s, s, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+                    tex.SetPixels32(px);
+                    tex.Apply();
+                    _objectiveSymbol = Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), s);
+                }
+                return _objectiveSymbol;
             }
         }
 

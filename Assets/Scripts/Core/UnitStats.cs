@@ -108,11 +108,21 @@ namespace Tactix.Core
             moveRange: 3.5, attackRange: 1.3, attackPower: 3, maxHp: 6, sight: 3.5, radius: 0.38,
             requiresLineOfSight: false, isVehicle: false);
 
+        /// <summary>
+        /// The command element. Sees furthest of anything but the recon troop,
+        /// carries a token defensive capability, and must survive: losing it ends
+        /// the game.
+        /// </summary>
+        public static readonly UnitStats Headquarters = new UnitStats(
+            moveRange: 3.5, attackRange: 1.2, attackPower: 1, maxHp: 6, sight: 6.0, radius: 0.35,
+            requiresLineOfSight: false, isVehicle: false);
+
         /// <summary>All unit types, in display order (for legends, tools, iteration).</summary>
         public static readonly UnitType[] AllTypes =
         {
             UnitType.Infantry, UnitType.MechInfantry, UnitType.Armor, UnitType.Artillery,
             UnitType.Recon, UnitType.Medic, UnitType.Service, UnitType.CombinedArms,
+            UnitType.Headquarters,
         };
 
         /// <summary>The company-scale reference profile for a unit type.</summary>
@@ -128,6 +138,7 @@ namespace Tactix.Core
                 case UnitType.Medic: return Medic;
                 case UnitType.Service: return Service;
                 case UnitType.CombinedArms: return CombinedArms;
+                case UnitType.Headquarters: return Headquarters;
                 default: throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown unit type");
             }
         }

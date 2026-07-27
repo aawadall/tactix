@@ -8,8 +8,8 @@ namespace Tactix.Game
 {
     /// <summary>
     /// All uGUI built in code: status banner, End Turn button, mode-select panel,
-    /// win screen, unit legend (NATO symbols + capabilities), and selected-unit
-    /// telemetry (health / XP / sight / damage). Placeholder styling only.
+    /// win screen, unit legend (NATO symbols + capabilities), selected-unit
+    /// telemetry, and the orders strip / clock readout. Placeholder styling only.
     /// </summary>
     public sealed class UiController : MonoBehaviour
     {
@@ -29,6 +29,15 @@ namespace Tactix.Game
         private Text _manualStats;
         private Text _manualBody;
         private Text _manualKey;
+        private GameObject _workshopPanel;
+        private Text _workshopSeed;
+        private Text _workshopMode;
+        private GameObject _orderStrip;
+        private Text _orderSummary;
+        private Text _orderHint;
+        private readonly GameObject[] _slotButtons = new GameObject[OrderBook.MaxDepth];
+        private readonly GameObject[] _slotRemoveButtons = new GameObject[OrderBook.MaxDepth];
+        private GameObject _contextMenu;
 
         public bool LegendOpen => _legendPanel != null && _legendPanel.activeSelf;
 
@@ -47,7 +56,10 @@ namespace Tactix.Game
             _legendPanel.SetActive(false);
             _endTurnButton.SetActive(false);
             _legendButton.SetActive(false);
+            HideMapWorkshop();
             HideTelemetry();
+            HideOrderStrip();
+            HideContextMenu();
             _banner.text = "";
         }
 
@@ -59,14 +71,31 @@ namespace Tactix.Game
             _endTurnButton.SetActive(true);
             _legendButton.SetActive(true);
             HideTelemetry();
+            HideOrderStrip();
+            HideContextMenu();
         }
 
-        public void ShowWinScreen(int winner)
+        public void ShowWinScreen(GameState state)
         {
             _winPanel.SetActive(true);
             _endTurnButton.SetActive(false);
             HideTelemetry();
-            _winText.text = $"Player {winner + 1} ({PlayerName(winner)}) wins!";
+            HideOrderStrip();
+            HideContextMenu();
+
+            string headline = state.Winner.HasValue
+                ? $"Player {state.Winner.Value + 1} ({PlayerName(state.Winner.Value)}) wins"
+                : "Draw";
+            string reason;
+            switch (state.Outcome)
+            {
+                case GameOutcome.Elimination: reason = "enemy force destroyed"; break;
+                case GameOutcome.Decapitation: reason = "enemy headquarters destroyed"; break;
+                case GameOutcome.Rout: reason = "enemy force broke and routed"; break;
+                case GameOutcome.Score: reason = "ahead on points at the turn limit"; break;
+                default: reason = "scores level at the turn limit"; break;
+            }
+            _winText.text = $"{headline}\n<size=22>{reason}   •   {state.Score[0]} – {state.Score[1]}   after {state.TurnNumber - 1} turns</size>";
         }
 
         // ---------- field manual ----------
@@ -79,7 +108,9 @@ namespace Tactix.Game
             _legendPanel.SetActive(false);
             _endTurnButton.SetActive(false);
             _legendButton.SetActive(false);
+            HideMapWorkshop();
             HideTelemetry();
+            HideOrderStrip();
             _banner.text = "";
 
             _manualPanel.SetActive(true);
@@ -118,11 +149,54 @@ namespace Tactix.Game
             if (_manualPanel != null) _manualPanel.SetActive(false);
         }
 
+        // ---------- map workshop ----------
+
+        public void ShowMapWorkshop(MapSpec spec, GameMode mode)
+        {
+            _modePanel.SetActive(false);
+            _winPanel.SetActive(false);
+            _legendPanel.SetActive(false);
+            _endTurnButton.SetActive(false);
+            _legendButton.SetActive(false);
+            HideTelemetry();
+            HideOrderStrip();
+            HideContextMenu();
+            if (_manualPanel != null) _manualPanel.SetActive(false);
+
+            _workshopPanel.SetActive(true);
+            string source = spec.IsStandard
+                ? "Standard map (24×24)"
+                : $"Generated {spec.Width}×{spec.Height}";
+            string seed = spec.IsStandard || !spec.Seed.HasValue
+                ? "—"
+                : spec.Seed.Value.ToString();
+            _workshopSeed.text = $"{source}\nSeed: {seed}";
+            _workshopMode.text = ModeLabel(mode);
+            _banner.text = "Preview — Reroll or Start Match";
+        }
+
+        public void HideMapWorkshop()
+        {
+            if (_workshopPanel != null) _workshopPanel.SetActive(false);
+        }
+
+        private static string ModeLabel(GameMode mode)
+        {
+            switch (mode)
+            {
+                case GameMode.Hotseat: return "Hotseat";
+                case GameMode.VsBot: return "Vs Bot";
+                default: return "Bot vs Bot";
+            }
+        }
+
         /// <summary>Keeps the map-source button's label in step with the setting.</summary>
         public void RefreshMapButton()
         {
             if (_mapButtonLabel == null) return;
-            _mapButtonLabel.text = _game.UseRandomMap ? "Map: Random (generated)" : "Map: Standard (fixed)";
+            _mapButtonLabel.text = _game.UseRandomMap
+                ? "Autoplay map: Random"
+                : "Autoplay map: Standard";
         }
 
         public void ToggleLegend()
@@ -135,21 +209,104 @@ namespace Tactix.Game
             _legendPanel.SetActive(false);
         }
 
-        public void UpdateStatus(GameState state, GameMode mode, bool isHumanTurn)
+        public void UpdateStatus(GameState state, GameMode mode, bool isHumanTurn,
+            float clockSeconds = 0f, bool ordersMode = false)
         {
-            if (state.Winner != null) return;
+            if (state == null || state.IsOver) return;
             string phase = state.TurnPhase == TurnPhase.Move ? "Move phase" : "Attack phase";
-            string actor = isHumanTurn ? "" : "  [bot thinking...]";
-            _banner.text = $"Turn {state.TurnNumber}  •  Player {state.CurrentPlayer + 1} ({PlayerName(state.CurrentPlayer)})  •  {phase}{actor}";
+            string actor = isHumanTurn
+                ? ""
+                : (ordersMode ? "  •  Planning — opponent is moving" : "  •  [bot thinking...]");
+            string limit = state.TurnLimit.HasValue ? $"/{state.TurnLimit}" : "";
+            string clock = ordersMode && isHumanTurn
+                ? $"  •  Clock {clockSeconds:0.0}s"
+                : "";
+            string autonomy = ordersMode && isHumanTurn
+                ? "  •  empty queues act on their own"
+                : "";
+            _banner.text =
+                $"Turn {state.TurnNumber}{limit}  •  Player {state.CurrentPlayer + 1} ({PlayerName(state.CurrentPlayer)})  •  {phase}{clock}{autonomy}{actor}\n" +
+                $"<size=17>Score  Blue {state.Score[0]} – {state.Score[1]} Red</size>";
             _endTurnButton.GetComponent<Button>().interactable = isHumanTurn;
+        }
+
+        public void ShowOrderStrip(int unitId, GameState state, OrderBook book, InputController.OrderTool tool,
+            int focusedSlot, int selectionCount = 1)
+        {
+            if (_orderStrip == null || state == null) return;
+            var unit = state.GetUnit(unitId);
+            if (unit == null)
+            {
+                HideOrderStrip();
+                return;
+            }
+
+            _orderStrip.SetActive(true);
+            var sb = new StringBuilder();
+            sb.Append($"Orders · {VisualAssets.UnitDisplayName(unit.Type, unit.Echelon)}");
+            if (selectionCount > 1) sb.Append($"  ×{selectionCount}");
+            if (tool != InputController.OrderTool.Auto) sb.Append($"  [{tool}]");
+
+            var queue = book.PeekAll(unitId);
+            if (queue.Count == 0)
+                sb.Append("\n<size=13><color=#aaa>No orders — unit acts on its own</color></size>");
+            _orderSummary.text = sb.ToString();
+
+            for (int i = 0; i < OrderBook.MaxDepth; i++)
+            {
+                bool occupied = i < queue.Count;
+                string label = occupied ? $"{i + 1}. {OrderLabel(state, queue[i])}" : $"{i + 1}. (empty)";
+                var slotBtn = _slotButtons[i];
+                if (slotBtn != null)
+                {
+                    slotBtn.SetActive(true);
+                    var text = slotBtn.GetComponentInChildren<Text>();
+                    if (text != null) text.text = label;
+                    var img = slotBtn.GetComponent<Image>();
+                    if (img != null)
+                    {
+                        bool focused = i == focusedSlot;
+                        img.color = focused
+                            ? new Color(0.45f, 0.38f, 0.15f, 0.95f)
+                            : occupied
+                                ? new Color(0.18f, 0.22f, 0.28f, 0.92f)
+                                : new Color(0.12f, 0.13f, 0.16f, 0.75f);
+                    }
+                }
+                if (_slotRemoveButtons[i] != null)
+                    _slotRemoveButtons[i].SetActive(occupied);
+            }
+        }
+
+        public void HideOrderStrip()
+        {
+            if (_orderStrip != null) _orderStrip.SetActive(false);
+        }
+
+        private static string OrderLabel(GameState state, UnitOrder order)
+        {
+            switch (order)
+            {
+                case MoveToOrder move: return $"Move({move.X:0.0},{move.Y:0.0})";
+                case EngageOrder engage:
+                    var enemy = state.GetUnit(engage.TargetUnitId);
+                    return enemy != null ? $"Engage {VisualAssets.UnitTypeName(enemy.Type)}" : "Engage ?";
+                case HoldOrder hold: return $"Garrison({hold.X:0.0},{hold.Y:0.0})";
+                case SupportOrder support:
+                    var ally = state.GetUnit(support.TargetUnitId);
+                    return ally != null ? $"Support {VisualAssets.UnitTypeName(ally.Type)}" : "Support ?";
+                default: return order.Kind;
+            }
         }
 
         // ---------- telemetry ----------
 
-        public void ShowTelemetry(Unit unit, GameState state, bool splitMode = false)
+        public void ShowTelemetry(Unit unit, GameState state, bool splitMode = false, bool inspectOnly = false)
         {
             var s = unit.Stats;
             var sb = new StringBuilder();
+            if (inspectOnly)
+                sb.AppendLine("<color=#aaa>Inspect only — cannot issue orders</color>");
             if (splitMode) sb.AppendLine("[ DETACHING — click where the new unit forms up ]");
             sb.AppendLine($"{VisualAssets.UnitDisplayName(unit.Type, unit.Echelon)}");
             sb.AppendLine($"Player {unit.Owner + 1} ({PlayerName(unit.Owner)})");
@@ -177,8 +334,83 @@ namespace Tactix.Game
             }
             sb.Append(notes.Length > 0 ? notes.ToString() : "—");
 
+            _telemetryText.supportRichText = true;
             _telemetryText.text = sb.ToString();
             _telemetryPanel.SetActive(true);
+        }
+
+        public void ShowTelemetryGroup(System.Collections.Generic.IEnumerable<Unit> units, GameState state)
+        {
+            if (units == null || state == null)
+            {
+                HideTelemetry();
+                return;
+            }
+
+            var list = new System.Collections.Generic.List<Unit>();
+            foreach (var u in units)
+                if (u != null) list.Add(u);
+            if (list.Count == 0)
+            {
+                HideTelemetry();
+                return;
+            }
+            if (list.Count == 1)
+            {
+                ShowTelemetry(list[0], state);
+                return;
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Selected {list.Count} units");
+            int hp = 0, maxHp = 0;
+            foreach (var u in list)
+            {
+                hp += u.Hp;
+                maxHp += u.Stats.MaxHp;
+                sb.AppendLine($"• {VisualAssets.UnitDisplayName(u.Type, u.Echelon)}  HP {u.Hp}/{u.Stats.MaxHp}");
+            }
+            sb.Append($"Total HP {hp}/{maxHp}");
+            _telemetryText.supportRichText = true;
+            _telemetryText.text = sb.ToString();
+            _telemetryPanel.SetActive(true);
+        }
+
+        public void HideContextMenu()
+        {
+            if (_contextMenu != null) _contextMenu.SetActive(false);
+        }
+
+        public void ShowUnitContextMenu(Vector2 screenPos, Unit unit, bool canOrder, bool canSplit,
+            int selectionCount = 1, bool anyAttack = false, bool anySupport = false)
+        {
+            if (_contextMenu == null || unit == null) return;
+            _contextMenu.SetActive(true);
+
+            var rect = _contextMenu.GetComponent<RectTransform>();
+            float w = rect.sizeDelta.x;
+            float h = rect.sizeDelta.y;
+            rect.position = new Vector3(
+                Mathf.Clamp(screenPos.x + 8f, w * 0.5f + 4f, Screen.width - w * 0.5f - 4f),
+                Mathf.Clamp(screenPos.y + 8f, h * 0.5f + 4f, Screen.height - h * 0.5f - 4f),
+                0f);
+
+            bool attack = selectionCount > 1 ? anyAttack : unit.Stats.CanAttack;
+            bool support = selectionCount > 1 ? anySupport : unit.Stats.CanSupport;
+            SetMenuButtonActive("Move", canOrder);
+            SetMenuButtonActive("Engage", canOrder && attack);
+            SetMenuButtonActive("Support", canOrder && support);
+            SetMenuButtonActive("Garrison", canOrder);
+            SetMenuButtonActive("Split", canOrder && canSplit && selectionCount <= 1);
+            SetMenuButtonActive("ClearQueue", canOrder);
+            SetMenuButtonActive("Deselect", true);
+        }
+
+        private void SetMenuButtonActive(string name, bool active)
+        {
+            if (_contextMenu == null) return;
+            var t = _contextMenu.transform.Find(name);
+            if (t != null) t.gameObject.SetActive(active);
         }
 
         public void HideTelemetry()
@@ -206,8 +438,9 @@ namespace Tactix.Game
             eventSystemGo.AddComponent<EventSystem>();
             eventSystemGo.AddComponent<StandaloneInputModule>();
 
-            _banner = MakeText(canvasGo.transform, "Banner", "", 22, TextAnchor.MiddleCenter);
-            Anchor(_banner.rectTransform, new Vector2(0.5f, 1f), new Vector2(0, -28), new Vector2(1000, 40));
+            _banner = MakeText(canvasGo.transform, "Banner", "", 22, TextAnchor.UpperCenter);
+            _banner.supportRichText = true;
+            Anchor(_banner.rectTransform, new Vector2(0.5f, 1f), new Vector2(0, -12), new Vector2(1000, 56));
 
             _endTurnButton = MakeButton(canvasGo.transform, "End Turn", () => _game.SubmitEndTurn(),
                 new Color(0.25f, 0.35f, 0.5f));
@@ -218,19 +451,134 @@ namespace Tactix.Game
             Anchor(_legendButton.GetComponent<RectTransform>(), new Vector2(1f, 1f), new Vector2(-85, -30), new Vector2(140, 42));
 
             BuildTelemetryPanel(canvasGo.transform);
+            BuildOrderStrip(canvasGo.transform);
+            BuildContextMenu(canvasGo.transform);
             BuildModePanel(canvasGo.transform);
             BuildWinPanel(canvasGo.transform);
             BuildLegendPanel(canvasGo.transform);
             BuildFieldManualPanel(canvasGo.transform);
+            BuildWorkshopPanel(canvasGo.transform);
 
             _modePanel.SetActive(false);
             _winPanel.SetActive(false);
             _legendPanel.SetActive(false);
             _manualPanel.SetActive(false);
+            _workshopPanel.SetActive(false);
             _telemetryPanel.SetActive(false);
+            _orderStrip.SetActive(false);
+            _contextMenu.SetActive(false);
             _endTurnButton.SetActive(false);
             _legendButton.SetActive(false);
         }
+
+        private void BuildOrderStrip(Transform canvas)
+        {
+            _orderStrip = MakePanel(canvas, "OrderStrip");
+            var rect = _orderStrip.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0f, 0f);
+            rect.anchorMax = new Vector2(0f, 0f);
+            rect.pivot = new Vector2(0f, 0f);
+            rect.anchoredPosition = new Vector2(12, 12);
+            rect.sizeDelta = new Vector2(520, 148);
+
+            var bg = _orderStrip.GetComponent<Image>();
+            bg.color = new Color(0.08f, 0.09f, 0.12f, 0.88f);
+
+            _orderSummary = MakeText(_orderStrip.transform, "Summary", "", 15, TextAnchor.UpperLeft);
+            _orderSummary.supportRichText = true;
+            Anchor(_orderSummary.rectTransform, new Vector2(0f, 1f), new Vector2(12, -8), new Vector2(496, 22));
+
+            for (int i = 0; i < OrderBook.MaxDepth; i++)
+            {
+                int slot = i;
+                var slotGo = MakeButton(_orderStrip.transform, $"{i + 1}. (empty)",
+                    () => FindInput()?.SetFocusedSlot(slot),
+                    new Color(0.12f, 0.13f, 0.16f, 0.75f));
+                slotGo.name = $"Slot{i}";
+                Anchor(slotGo.GetComponent<RectTransform>(), new Vector2(0f, 1f),
+                    new Vector2(12 + i * 170, -34), new Vector2(158, 28));
+                var slotText = slotGo.GetComponentInChildren<Text>();
+                if (slotText != null) slotText.fontSize = 13;
+                _slotButtons[i] = slotGo;
+
+                var removeGo = MakeButton(_orderStrip.transform, "×",
+                    () => FindInput()?.RemoveOrderAtSlot(slot),
+                    new Color(0.45f, 0.22f, 0.22f, 0.9f));
+                removeGo.name = $"SlotRemove{i}";
+                Anchor(removeGo.GetComponent<RectTransform>(), new Vector2(0f, 1f),
+                    new Vector2(158 + i * 170, -34), new Vector2(24, 28));
+                var removeText = removeGo.GetComponentInChildren<Text>();
+                if (removeText != null) removeText.fontSize = 18;
+                _slotRemoveButtons[i] = removeGo;
+            }
+
+            float x = 12f;
+            void Tool(string label, InputController.OrderTool tool, Color color)
+            {
+                var captured = tool;
+                var btn = MakeButton(_orderStrip.transform, label, () => FindInput()?.SetTool(captured), color);
+                Anchor(btn.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(x + 40, 38), new Vector2(80, 32));
+                x += 86f;
+            }
+
+            Tool("Move", InputController.OrderTool.Move, new Color(0.2f, 0.4f, 0.5f));
+            Tool("Engage", InputController.OrderTool.Engage, new Color(0.5f, 0.22f, 0.2f));
+            Tool("Garrison", InputController.OrderTool.Hold, new Color(0.35f, 0.35f, 0.28f));
+            Tool("Support", InputController.OrderTool.Support, new Color(0.2f, 0.45f, 0.28f));
+
+            var undo = MakeButton(_orderStrip.transform, "Undo", () => FindInput()?.UndoLastOrder(),
+                new Color(0.32f, 0.32f, 0.38f));
+            Anchor(undo.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(x + 36, 38), new Vector2(72, 32));
+            x += 80f;
+            var clear = MakeButton(_orderStrip.transform, "Clear", () => FindInput()?.ClearSelectedOrders(),
+                new Color(0.32f, 0.32f, 0.38f));
+            Anchor(clear.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(x + 36, 38), new Vector2(72, 32));
+
+            _orderHint = MakeText(_orderStrip.transform, "Hint",
+                "Click slot to edit  •  Shift+click append  •  Z undo  •  Ctrl+click instant  •  RMB cancel",
+                12, TextAnchor.LowerLeft);
+            _orderHint.color = new Color(0.7f, 0.72f, 0.78f);
+            Anchor(_orderHint.rectTransform, new Vector2(0f, 0f), new Vector2(12, 4), new Vector2(496, 18));
+        }
+
+        private void BuildContextMenu(Transform canvas)
+        {
+            _contextMenu = new GameObject("ContextMenu");
+            _contextMenu.transform.SetParent(canvas, false);
+            var image = _contextMenu.AddComponent<Image>();
+            image.color = new Color(0.06f, 0.07f, 0.1f, 0.94f);
+            var rect = _contextMenu.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(140, 220);
+
+            float y = -8f;
+            void Item(string name, string label, System.Action action)
+            {
+                var btn = MakeButton(_contextMenu.transform, label, () =>
+                {
+                    action?.Invoke();
+                    HideContextMenu();
+                }, new Color(0.22f, 0.24f, 0.3f));
+                btn.name = name;
+                Anchor(btn.GetComponent<RectTransform>(), new Vector2(0.5f, 1f), new Vector2(0, y - 18), new Vector2(124, 30));
+                var t = btn.GetComponentInChildren<Text>();
+                if (t != null) t.fontSize = 15;
+                y -= 34f;
+            }
+
+            Item("Move", "Move", () => FindInput()?.SetTool(InputController.OrderTool.Move));
+            Item("Engage", "Engage", () => FindInput()?.SetTool(InputController.OrderTool.Engage));
+            Item("Support", "Support", () => FindInput()?.SetTool(InputController.OrderTool.Support));
+            Item("Garrison", "Garrison", () => FindInput()?.SetTool(InputController.OrderTool.Hold));
+            Item("Split", "Split", () => FindInput()?.ToggleSplitMode());
+            Item("ClearQueue", "Clear Queue", () => FindInput()?.ClearSelectedOrders());
+            Item("Deselect", "Deselect", () => FindInput()?.ClearSelection());
+
+            rect.sizeDelta = new Vector2(140, -y + 8f);
+            _contextMenu.SetActive(false);
+        }
+
+        private InputController FindInput() =>
+            _game != null ? _game.GetComponent<InputController>() : null;
 
         private void BuildTelemetryPanel(Transform canvas)
         {
@@ -242,7 +590,7 @@ namespace Tactix.Game
             rect.anchorMin = new Vector2(0f, 0f);
             rect.anchorMax = new Vector2(0f, 0f);
             rect.pivot = new Vector2(0f, 0f);
-            rect.anchoredPosition = new Vector2(12, 12);
+            rect.anchoredPosition = new Vector2(12, 168);
             rect.sizeDelta = new Vector2(300, 190);
 
             _telemetryText = MakeText(_telemetryPanel.transform, "Body", "", 15, TextAnchor.UpperLeft);
@@ -267,7 +615,7 @@ namespace Tactix.Game
             for (int i = 0; i < labels.Length; i++)
             {
                 var mode = modes[i];
-                var button = MakeButton(_modePanel.transform, labels[i], () => _game.StartGame(mode),
+                var button = MakeButton(_modePanel.transform, labels[i], () => _game.OpenMapWorkshop(mode),
                     new Color(0.22f, 0.42f, 0.32f));
                 Anchor(button.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, 70 - i * 68), new Vector2(320, 56));
             }
@@ -286,7 +634,9 @@ namespace Tactix.Game
             var quit = MakeButton(_modePanel.transform, "Quit", () => _game.QuitGame(), new Color(0.5f, 0.24f, 0.22f));
             Anchor(quit.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -346), new Vector2(320, 56));
 
-            var hint = MakeText(_modePanel.transform, "Hint", "Esc: back / quit   •   L: legend   •   F11: fullscreen   •   right-click: deselect", 15, TextAnchor.MiddleCenter);
+            var hint = MakeText(_modePanel.transform, "Hint",
+                "Pick a mode → Map Workshop → Start Match   •   Esc: back / quit   •   L: legend",
+                15, TextAnchor.MiddleCenter);
             Anchor(hint.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, 122), new Vector2(800, 28));
         }
 
@@ -294,6 +644,7 @@ namespace Tactix.Game
         {
             _winPanel = MakePanel(canvas, "WinPanel");
             _winText = MakeText(_winPanel.transform, "WinText", "", 40, TextAnchor.MiddleCenter);
+            _winText.supportRichText = true;
             Anchor(_winText.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, 90), new Vector2(800, 60));
             var newGame = MakeButton(_winPanel.transform, "New Game", () => _game.BackToMenu(),
                 new Color(0.22f, 0.42f, 0.32f));
@@ -338,20 +689,24 @@ namespace Tactix.Game
                 Anchor(row.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(20, y), new Vector2(740, 48));
             }
 
-            (Color color, string text)[] terrain =
+            (Sprite sprite, Color tint, string text)[] terrain =
             {
-                (VisualAssets.OpenColor, "Open — no effect"),
-                (VisualAssets.ForestColor, "Forest — +1 defense to occupant, blocks artillery line of sight"),
-                (VisualAssets.ImpassableColor, "Impassable — blocks movement and line of sight"),
-                (VisualAssets.ContourColor, "Contours mark elevation (digit = summit height); thick = cliff, blocks movement"),
+                (VisualAssets.Square, VisualAssets.PaperColor, "Open ground — parchment base (no tile squares)"),
+                (VisualAssets.ForestSymbol, VisualAssets.ForestInk, "Forest mark — +1 defense to occupant, blocks artillery line of sight"),
+                (VisualAssets.RockSymbol, VisualAssets.RockInk, "Rock / impassable — blocks movement and line of sight"),
+                (VisualAssets.ObjectiveSymbol, VisualAssets.ObjectiveInk, "Objective — hold the ring for score points"),
+                (VisualAssets.Square, VisualAssets.ContourColor, "Contours mark elevation (digit = summit height); thick = cliff, blocks movement"),
             };
             for (int i = 0; i < terrain.Length; i++)
             {
                 float y = -100 - i * 34;
                 var chipGo = new GameObject($"Chip {i}");
                 chipGo.transform.SetParent(_legendPanel.transform, false);
-                chipGo.AddComponent<Image>().color = terrain[i].color;
-                Anchor(chipGo.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(-390, y), new Vector2(26, 26));
+                var chip = chipGo.AddComponent<Image>();
+                chip.sprite = terrain[i].sprite;
+                chip.color = terrain[i].tint;
+                chip.preserveAspect = true;
+                Anchor(chipGo.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(-390, y), new Vector2(28, 28));
 
                 var row = MakeText(_legendPanel.transform, $"TerrainRow {i}", terrain[i].text, 16, TextAnchor.MiddleLeft);
                 Anchor(row.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(20, y), new Vector2(740, 32));
@@ -420,6 +775,73 @@ namespace Tactix.Game
             _manualKey = MakeText(_manualPanel.transform, "OverlayKey", "", 15, TextAnchor.LowerCenter);
             _manualKey.horizontalOverflow = HorizontalWrapMode.Wrap;
             Anchor(_manualKey.rectTransform, new Vector2(0.5f, 0f), new Vector2(-120, 16), new Vector2(880, 60));
+        }
+
+        /// <summary>
+        /// Side panel for the Map Workshop. Preview board renders in the world;
+        /// this card holds size / reroll / start controls.
+        /// </summary>
+        private void BuildWorkshopPanel(Transform canvas)
+        {
+            _workshopPanel = new GameObject("WorkshopPanel");
+            _workshopPanel.transform.SetParent(canvas, false);
+            var rect = _workshopPanel.AddComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+
+            var card = new GameObject("Card");
+            card.transform.SetParent(_workshopPanel.transform, false);
+            card.AddComponent<Image>().color = new Color(0.05f, 0.05f, 0.07f, 0.93f);
+            Anchor(card.GetComponent<RectTransform>(), new Vector2(1f, 0.5f), new Vector2(-16, 0), new Vector2(420, 560));
+
+            var header = MakeText(card.transform, "Header", "MAP WORKSHOP", 16, TextAnchor.UpperLeft);
+            header.color = new Color(0.65f, 0.72f, 0.85f);
+            Anchor(header.rectTransform, new Vector2(0f, 1f), new Vector2(22, -18), new Vector2(380, 22));
+
+            _workshopMode = MakeText(card.transform, "Mode", "", 22, TextAnchor.UpperLeft);
+            Anchor(_workshopMode.rectTransform, new Vector2(0f, 1f), new Vector2(22, -48), new Vector2(380, 30));
+
+            _workshopSeed = MakeText(card.transform, "Seed", "", 16, TextAnchor.UpperLeft);
+            _workshopSeed.color = new Color(0.85f, 0.90f, 1f);
+            Anchor(_workshopSeed.rectTransform, new Vector2(0f, 1f), new Vector2(22, -90), new Vector2(380, 56));
+
+            var sizeLabel = MakeText(card.transform, "SizeLabel", "Board size", 15, TextAnchor.UpperLeft);
+            sizeLabel.color = new Color(0.7f, 0.7f, 0.75f);
+            Anchor(sizeLabel.rectTransform, new Vector2(0f, 1f), new Vector2(22, -156), new Vector2(380, 22));
+
+            int[] sizes = { 16, 20, 24, 28 };
+            for (int i = 0; i < sizes.Length; i++)
+            {
+                int size = sizes[i];
+                var sizeBtn = MakeButton(card.transform, size.ToString(),
+                    () => _game.WorkshopSetSize(size), new Color(0.30f, 0.30f, 0.46f));
+                Anchor(sizeBtn.GetComponent<RectTransform>(), new Vector2(0f, 1f),
+                    new Vector2(22 + i * 94, -190), new Vector2(86, 42));
+            }
+
+            var reroll = MakeButton(card.transform, "Reroll", () => _game.WorkshopReroll(),
+                new Color(0.30f, 0.30f, 0.46f));
+            Anchor(reroll.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(22, -250), new Vector2(180, 48));
+
+            var standard = MakeButton(card.transform, "Standard map", () => _game.WorkshopUseStandard(),
+                new Color(0.30f, 0.30f, 0.46f));
+            Anchor(standard.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(214, -250), new Vector2(180, 48));
+
+            var start = MakeButton(card.transform, "Start Match", () => _game.WorkshopStartMatch(),
+                new Color(0.22f, 0.42f, 0.32f));
+            Anchor(start.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(22, 74), new Vector2(240, 52));
+
+            var back = MakeButton(card.transform, "Back", () => _game.CloseMapWorkshop(),
+                new Color(0.32f, 0.32f, 0.38f));
+            Anchor(back.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(278, 74), new Vector2(116, 52));
+
+            var hint = MakeText(card.transform, "Hint",
+                "Preview only — Esc to go back. Autoplay still bypasses the workshop.",
+                14, TextAnchor.UpperLeft);
+            hint.color = new Color(0.7f, 0.7f, 0.75f);
+            Anchor(hint.rectTransform, new Vector2(0f, 0f), new Vector2(22, 40), new Vector2(380, 28));
         }
 
         private static GameObject MakePanel(Transform parent, string name)

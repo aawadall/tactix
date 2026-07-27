@@ -16,7 +16,7 @@ namespace Tactix.Core
     /// </summary>
     public sealed class GameLogger : IDisposable
     {
-        public const int SchemaVersion = 8;
+        public const int SchemaVersion = 10;
 
         private readonly StreamWriter _writer;
         private int _stepCount;
@@ -25,16 +25,20 @@ namespace Tactix.Core
         public string FilePath { get; }
 
         /// <summary>
-        /// Opens a log for one game. <paramref name="mapSeed"/> is the seed used to
-        /// generate the map, or null for the fixed standard map — recording it keeps
-        /// every logged game reproducible.
+        /// Opens a log for one game. <paramref name="mapSeed"/> / <paramref name="mapSpec"/>
+        /// record how the board was produced so logged games stay reproducible.
         /// </summary>
-        public GameLogger(string directory, string mode, GameState initialState, int? mapSeed = null, int? rngSeed = null)
+        public GameLogger(string directory, string mode, GameState initialState,
+            int? mapSeed = null, int? rngSeed = null, MapSpec mapSpec = null)
         {
             Directory.CreateDirectory(directory);
             string stamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
             string suffix = Guid.NewGuid().ToString("N").Substring(0, 8);
             FilePath = Path.Combine(directory, $"game_{stamp}_{suffix}.jsonl");
+
+            string mapSource = mapSpec != null
+                ? (mapSpec.IsStandard ? MapSpec.SourceStandard : MapSpec.SourceGenerated)
+                : (mapSeed.HasValue ? MapSpec.SourceGenerated : MapSpec.SourceStandard);
 
             _writer = new StreamWriter(FilePath, append: false) { AutoFlush = true };
             WriteLine(new HeaderLine
@@ -42,9 +46,10 @@ namespace Tactix.Core
                 SchemaVersion = SchemaVersion,
                 CreatedUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
                 Mode = mode,
-                MapSource = mapSeed.HasValue ? "generated" : "standard",
-                MapSeed = mapSeed,
+                MapSource = mapSource,
+                MapSeed = mapSpec?.Seed ?? mapSeed,
                 RngSeed = rngSeed,
+                MapSpec = mapSpec?.Clone(),
                 InitialState = initialState,
             });
         }
@@ -68,22 +73,32 @@ namespace Tactix.Core
             });
         }
 
-        /// <summary>Writes the final result line. Pass null winner for an aborted (unfinished) game.</summary>
-        public void LogResult(int? winner)
+        /// <summary>
+        /// Writes the final result line. Pass the finished state to record how the
+        /// game ended and the final score; pass null for a game abandoned part-way.
+        /// A draw is a completed game with a null winner, which is why
+        /// <c>outcome</c> rather than <c>winner</c> distinguishes the two.
+        /// </summary>
+        public void LogResult(GameState finalState)
         {
             if (_resultWritten) return;
             _resultWritten = true;
             WriteLine(new ResultLine
             {
-                Winner = winner,
-                Completed = winner.HasValue,
+                Winner = finalState?.Winner,
+                Outcome = finalState != null && finalState.IsOver
+                    ? finalState.Outcome.ToString().ToLowerInvariant()
+                    : "aborted",
+                Completed = finalState != null && finalState.IsOver,
+                Score = finalState?.Score,
+                TurnsPlayed = finalState?.TurnNumber ?? 0,
                 TotalSteps = _stepCount,
             });
         }
 
         public void Dispose()
         {
-            if (!_resultWritten) LogResult(null); // game abandoned mid-way (e.g. app quit)
+            if (!_resultWritten) LogResult((GameState)null); // abandoned mid-way (e.g. app quit)
             _writer.Dispose();
         }
 
@@ -101,6 +116,7 @@ namespace Tactix.Core
             [JsonProperty("mapSource")] public string MapSource { get; set; }
             [JsonProperty("mapSeed")] public int? MapSeed { get; set; }
             [JsonProperty("rngSeed")] public int? RngSeed { get; set; }
+            [JsonProperty("mapSpec", NullValueHandling = NullValueHandling.Ignore)] public MapSpec MapSpec { get; set; }
             [JsonProperty("initialState")] public GameState InitialState { get; set; }
         }
 
@@ -119,7 +135,10 @@ namespace Tactix.Core
         {
             [JsonProperty("type")] public string Type => "result";
             [JsonProperty("winner")] public int? Winner { get; set; }
+            [JsonProperty("outcome")] public string Outcome { get; set; }
             [JsonProperty("completed")] public bool Completed { get; set; }
+            [JsonProperty("score")] public int[] Score { get; set; }
+            [JsonProperty("turnsPlayed")] public int TurnsPlayed { get; set; }
             [JsonProperty("totalSteps")] public int TotalSteps { get; set; }
         }
     }

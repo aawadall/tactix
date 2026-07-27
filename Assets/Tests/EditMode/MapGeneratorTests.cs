@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
@@ -44,8 +44,8 @@ namespace Tactix.Core.Tests
         public void Generated_DeploysBothArmiesLegally([ValueSource(nameof(Seeds))] int seed)
         {
             var state = MapGenerator.Generate(24, 24, seed);
-            Assert.AreEqual(28, state.Units.Count);
-            Assert.AreEqual(14, state.Units.Count(u => u.Owner == 0));
+            Assert.AreEqual(30, state.Units.Count);
+            Assert.AreEqual(15, state.Units.Count(u => u.Owner == 0));
 
             foreach (var unit in state.Units)
             {
@@ -111,7 +111,7 @@ namespace Tactix.Core.Tests
             {
                 var state = MapGenerator.Generate(size, size, 5);
                 Assert.AreEqual(size, state.Width);
-                Assert.AreEqual(28, state.Units.Count);
+                Assert.AreEqual(30, state.Units.Count);
                 Assert.IsTrue(ArmiesConnected(state), $"armies cannot meet on a {size}x{size} map");
             }
 
@@ -131,13 +131,13 @@ namespace Tactix.Core.Tests
             var outcomes = new SeededRandom(3);
             var state = MapGenerator.Generate(24, 24, 777);
             int steps = 0;
-            while (state.Winner == null && steps < 20000)
+            while (!state.IsOver && steps < 20000)
             {
                 var action = bot.ChooseAction(state);
                 Assert.DoesNotThrow(() => state = Rules.Apply(state, action, outcomes), $"rejected {action}");
                 steps++;
             }
-            Assert.IsNotNull(state.Winner, "self-play on a generated map did not terminate");
+            Assert.IsTrue(state.IsOver, "self-play on a generated map did not terminate");
         }
 
         /// <summary>Half-tile flood fill using the real path rule, from one army to the other.</summary>
@@ -166,6 +166,23 @@ namespace Tactix.Core.Tests
                     }
             }
             return seen.Contains(goal);
+        }
+
+        [Test]
+        public void MapSpec_MatchesLegacyGenerate()
+        {
+            var viaLegacy = MapGenerator.Generate(24, 24, 42);
+            var viaSpec = MapGenerator.Generate(MapSpec.Generated(24, 24, 42));
+            Assert.AreEqual(viaLegacy.ToJson(), viaSpec.ToJson());
+        }
+
+        [Test]
+        public void MapSpec_Standard_Is24x24()
+        {
+            var state = MapGenerator.Generate(MapSpec.Standard());
+            Assert.AreEqual(24, state.Width);
+            Assert.AreEqual(24, state.Height);
+            Assert.AreEqual(LevelConfig.DefaultTurnLimit, state.TurnLimit);
         }
 
         private static (double, double) Snap(Unit unit, double step) =>

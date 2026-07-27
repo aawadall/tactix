@@ -62,6 +62,12 @@ namespace Tactix.Core.Tests
             return state;
         }
 
+        public static GameState WithObjective(this GameState state, int id, double x, double y, double radius, int value)
+        {
+            state.Objectives.Add(new Objective { Id = id, X = x, Y = y, Radius = radius, Value = value });
+            return state;
+        }
+
         public static HashSet<int> AttackTargets(GameState state, int unitId)
         {
             var targets = new HashSet<int>();

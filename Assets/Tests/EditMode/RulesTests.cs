@@ -420,7 +420,7 @@ namespace Tactix.Core.Tests
                 Assert.AreEqual(unit.Type, mirror.Type);
             }
 
-            Assert.AreEqual(28, state.Units.Count);
+            Assert.AreEqual(30, state.Units.Count);
             foreach (int owner in new[] { 0, 1 })
             {
                 Assert.AreEqual(3, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Infantry));
@@ -430,7 +430,12 @@ namespace Tactix.Core.Tests
                 Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Recon));
                 Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Medic));
                 Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Service));
+                Assert.AreEqual(1, state.Units.Count(u => u.Owner == owner && u.Type == UnitType.Headquarters));
             }
+
+            // Both sides must start with identical combat strength.
+            Assert.AreEqual(state.StrengthOf(0), state.StrengthOf(1));
+            Assert.AreEqual(state.StartingStrength[0], state.StartingStrength[1]);
         }
 
         [Test]

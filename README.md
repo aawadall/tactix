@@ -6,6 +6,10 @@ UnityEngine references) with serializable state, structured actions, an
 authoritative legal-action function, and a JSON-lines game logger. A thin Unity
 layer (`Assets/Scripts/Game`) renders it and handles input.
 
+**Roadmaps:** product path to an indie release — [`PRODUCT_ROADMAP.md`](PRODUCT_ROADMAP.md);
+rules/ML feature designs — [`ROADMAP.md`](ROADMAP.md);
+pre-game map workshop — [`docs/PREGAME_MAP_GENERATOR.md`](docs/PREGAME_MAP_GENERATOR.md).
+
 - Unity **6000.0.75f1 LTS**, standalone desktop target (Windows/Mac/Linux).
 - v1: human-vs-human hotseat, human-vs-random-bot, and bot-vs-bot self-play.
   No ML/inference code yet — the point of v1 is validating the engine and
@@ -49,13 +53,17 @@ drawn from the rules engine — `Rules.GetMoveRegion`, `GetLegalAttacks`,
 with ← →, leave with Esc.
 
 In game: click a friendly unit to select it — the cyan region is everywhere it
-can dash to and red rings mark enemies it can attack, both straight from the
-rules engine. Click anywhere in the region to move there (a click outside it is
-clamped to the furthest legal point on that heading), or a ringed enemy to
-attack. Right-click deselects, End Turn passes. Clicking any unit shows its
-telemetry (health, XP, position, elevation, damage, sight); **L** or the Legend
-button opens the unit legend; **Esc** backs out of a game (or quits from the
-menu); Quit buttons sit on the menu and win screens.
+can dash this turn and red rings mark enemies in attack range. By default clicks
+**enqueue orders** (Move-to, Engage, Hold, Support) rather than acting instantly:
+a short orders strip shows the queue (max 3), path arrows show the plan with a
+`~Nt` pace estimate, and an internal **clock** (~0.5s) steps the head of each
+queue into a normal legal action, then auto-ends the turn when every ordered
+unit is idle for the ply. Shift+click appends; **Z** undoes the last order;
+right-click clears the queue (or deselects); **H** arms Hold; **Ctrl+click**
+still issues an immediate atomic move/attack. End Turn always works. Orders and
+the clock are presentation-only — they never enter `GameState` or the JSONL
+schema. Clicking any unit shows its telemetry; **L** opens the legend; **Esc**
+backs out (or quits from the menu).
 
 Units are drawn as NATO APP-6-style symbols (player-colored frame, company
 echelon bar): infantry ⨯, mechanized ⨯+track oval, armor oval, artillery ●,
@@ -187,8 +195,58 @@ contours mark cliffs.
   (see the topographic rules above). The shooter's and target's own tiles never
   block, corner-touches don't block, and the test is symmetric by construction.
 - Damage = attacker power + (1 from higher ground) − (1 if defender stands in
-  forest), floored at 0; no counterattacks. A unit at 0 HP is removed;
-  eliminating all enemy units wins.
+  forest), floored at 0; no counterattacks. A unit at 0 HP is removed.
+
+## Winning
+
+A game ends in one of five ways, checked in this order:
+
+| Outcome | Trigger |
+|---|---|
+| `elimination` | every enemy formation destroyed |
+| `decapitation` | the enemy **Headquarters** destroyed — each side fields one, and it can neither amalgamate nor detach |
+| `rout` | the enemy's surviving strength falls below **25%** of what they deployed with |
+| `score` | the **turn limit** (60 plies, 30 turns each) is reached and one side leads on points |
+| `draw` | the turn limit is reached with the scores level |
+
+A draw is a *finished* game with no winner, so `Winner` alone cannot tell you
+whether play continues — use `GameState.IsOver`, and `outcome` in the logs.
+
+### How score is calculated
+
+Two sources, both accruing into `score[player]`:
+
+**Ground held.** The map carries **objectives** — a high-value one at the centre
+and mirrored pairs on the flanks, placed symmetrically so neither side starts
+nearer to more points. At the end of each player's turn:
+
+```
+for each objective:
+    inside = units within objective.radius of its centre
+    if only one side is inside      -> that side takes control
+    if both are inside              -> contested, control unchanged, pays nobody
+    if neither is                   -> control persists with whoever holds it
+score[player ending turn] += sum of value of the objectives they hold
+```
+
+Control persisting when vacated is deliberate: ground you took stays yours until
+someone takes it back, so holding an objective does not require parking a unit on
+it forever.
+
+**Enemy destroyed.** When a formation dies, its killer scores that formation's
+**strength**, defined as its maximum HP:
+
+```
+score[attacker] += destroyed.Stats.MaxHp
+```
+
+Because strength doubles per echelon, this weights automatically: a battalion is
+worth twice a company, a division sixteen times. No separate table of unit values
+is needed, and it stays correct as new types are added.
+
+The two sources are deliberately comparable in magnitude — destroying an armour
+battalion (16 points) is worth about as much as holding the central objective for
+four turns — so neither manoeuvre nor attrition dominates the reward signal.
 
 ## Determinism and the random source
 
@@ -210,7 +268,7 @@ replays a whole game this way and compares final states. `Ruleset.Deterministic`
 turns both off and restores the pure-function engine, which is the sensible
 baseline for a first training run.
 
-## Data schemas (schemaVersion 7)
+## Data schemas (schemaVersion 10)
 
 Everything below is produced by `Tactix.Core` via Newtonsoft.Json and is the
 contract for the future imitation-learning pipeline. **Schema stability matters
@@ -229,6 +287,15 @@ more than anything else here** — change nothing without bumping
     {"id":6,"owner":0,"type":"armor","echelon":"brigade","x":10.5,"y":1.0,
      "hp":24,"xp":0,"hasMoved":false,"hasAttacked":false,"hasSupported":false}
   ],
+  "objectives": [
+    {"id":0,"x":11.5,"y":11.5,"radius":2.0,"value":4,
+     "controlledBy":null,"contested":false}
+  ],
+  "score": [12, 7],
+  "startingStrength": [90, 90],
+  "turnLimit": 60,
+  "routThreshold": 0.25,
+  "outcome": null,
   "ruleset": {"damageVariance": true, "movementFriction": true},
   "currentPlayer": 0,
   "turnPhase": "move",
@@ -246,7 +313,12 @@ more than anything else here** — change nothing without bumping
 | `currentPlayer` | `0` or `1` |
 | `turnPhase` | `"move"` \| `"attack"` — first attack of a turn switches it; movement is only legal in `"move"`. |
 | `turnNumber` | 1-based ply counter, +1 on every end-turn. |
-| `winner` | `null` while in progress, else `0` or `1`. |
+| `objectives` | key ground: centre, radius, per-turn `value`, and who holds it. Control persists when vacated; `contested` means both sides are inside and it pays nobody. |
+| `score` | victory points per player, from ground held and enemy strength destroyed. |
+| `startingStrength` | each side's deployed strength, the baseline for the rout threshold. |
+| `turnLimit` / `routThreshold` | the game's ending parameters, carried in state so a model can see the terms it is playing under. |
+| `winner` | `0` or `1`, or `null` — **which also means a draw**, so test `outcome` (or `IsOver`) rather than this. |
+| `outcome` | `null` while in progress, else `"elimination"` \| `"decapitation"` \| `"rout"` \| `"score"` \| `"draw"`. |
 
 ### Actions
 
@@ -283,14 +355,21 @@ next to the executable in builds. One JSON object per line, in order:
 
 1. **header** (first line):
    ```json
-   {"type":"header","schemaVersion":6,"createdUtc":"<ISO-8601>",
+   {"type":"header","schemaVersion":10,"createdUtc":"<ISO-8601>",
     "mode":"hotseat|vsBot|botVsBot","mapSource":"standard|generated",
-    "mapSeed":123456789,"initialState":<GameState>}
+    "mapSeed":123456789,"rngSeed":987654321,
+    "mapSpec":{"source":"generated","width":24,"height":24,"seed":123456789,"turnLimit":60},
+    "initialState":<GameState>}
    ```
    `mapSeed` is `null` for the standard map; for generated maps it reproduces
-   the board exactly via `MapGenerator.Generate(w, h, seed)`.
+   the board exactly via `MapGenerator.Generate(MapSpec)`. Optional `mapSpec`
+   (schema v10) records size, source, seed, and turn limit from the Map Workshop.
 
-   Version history — v7 added `echelon`, `ruleset`, `rngSeed`, and per-step
+   Version history — v10 added optional `mapSpec` on the header (Map Workshop);
+   v9 added objectives, scoring, the turn limit and rout
+   threshold, `outcome`, and the Headquarters unit; v8 added amalgamation and
+   detachment plus the power-of-two echelon ladder; v7 added `echelon`,
+   `ruleset`, `rngSeed`, and per-step
    `rngDraws`, and is the first schema whose games are not reproducible from
    `(state, action)` alone; v6 added `mapSource`/`mapSeed`; v5 added support units
    (`medic`, `service`, `hasSupported`, `heal` actions); v4 moved to continuous
@@ -304,9 +383,13 @@ next to the executable in builds. One JSON object per line, in order:
    `rngDraws` holds the random values consumed resolving that action, in order,
    and is omitted entirely when the step resolved deterministically.
 3. **result** (last line, exactly once):
-   `{"type":"result","winner":0|1|null,"completed":true|false,"totalSteps":<n>}`
-   — `completed:false` (with `winner:null`) marks a game abandoned mid-way
-   (e.g. app closed); the logger writes it automatically on dispose.
+   ```json
+   {"type":"result","winner":0,"outcome":"rout","completed":true,
+    "score":[41,18],"turnsPlayed":23,"totalSteps":412}
+   ```
+   `outcome` is the authoritative field: `"draw"` is a completed game with
+   `winner: null`, while `"aborted"` (with `completed: false`) marks a game
+   abandoned mid-way — the logger writes that automatically on dispose.
 
 Lines are flushed as written, so a crash loses at most the current line.
 
@@ -315,6 +398,10 @@ Lines are flushed as written, so a crash loses at most the current line.
 - `Tactix.Core` compiles without Unity (asmdef has `noEngineReferences: true`;
   the only dependency is Newtonsoft.Json), so it can be reused server-side or
   next to ONNX inference as-is.
+- **Orders & clock** (`OrderBook`, `UnitOrder`, `OrderExecutor`) live beside the
+  rules engine but are not logged. The Unity clock turns queue heads into normal
+  `GameAction`s via `Rules.Apply`; pace labels are `ceil(distance / MoveRange)`.
+  SchemaVersion is unchanged.
 - `RandomBot` only plays actions the rules engine produced (sampled moves,
   enumerated attacks) — any future agent should do the same. Its moves carry an
   *advance bias* toward the nearest enemy: pure uniform sampling wanders

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using Newtonsoft.Json.Linq;
@@ -45,7 +45,7 @@ namespace Tactix.Core.Tests
                 {
                     logFile = logger.FilePath;
                     int steps = 0;
-                    while (state.Winner == null)
+                    while (!state.IsOver)
                     {
                         Assert.Less(steps, MaxStepsPerGame, $"game {game} did not terminate");
                         var action = bot.ChooseAction(state);
@@ -60,7 +60,7 @@ namespace Tactix.Core.Tests
                         state = next;
                         steps++;
                     }
-                    logger.LogResult(state.Winner);
+                    logger.LogResult(state);
                 }
 
                 ValidateLogFile(logFile);
@@ -78,7 +78,7 @@ namespace Tactix.Core.Tests
             var state = LevelConfig.CreateStandardGame();
             int steps = 0;
 
-            while (state.Winner == null && steps < 400)
+            while (!state.IsOver && steps < 400)
             {
                 if (rng.Next(10) == 0)
                 {
@@ -151,7 +151,7 @@ namespace Tactix.Core.Tests
             Assert.AreEqual(GameLogger.SchemaVersion, (int)header["schemaVersion"]);
             Assert.AreEqual("botVsBot", (string)header["mode"]);
             Assert.IsNotNull(header["initialState"]?["terrain"]);
-            Assert.AreEqual(28, header["initialState"]["units"].Count());
+            Assert.AreEqual(30, header["initialState"]["units"].Count());
             Assert.IsNotNull(header["initialState"]?["elevation"]);
 
             var result = JObject.Parse(lines[lines.Length - 1]);

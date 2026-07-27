@@ -17,6 +17,9 @@ namespace Tactix.Core
     /// </summary>
     public static class LevelConfig
     {
+        /// <summary>Plies after which the game is decided on points (60 = 30 turns each).</summary>
+        public const int DefaultTurnLimit = 60;
+
         private static readonly string[] TerrainRows =
         {
             "........................", // y23
@@ -94,8 +97,13 @@ namespace Tactix.Core
             (UnitType.MechInfantry, Echelon.Battalion, 15.0, 2.0),
             (UnitType.MechInfantry, Echelon.Platoon, 17.0, 2.0),
             // armour: one heavy formation, one manoeuvre element
-            (UnitType.Armor, Echelon.Brigade, 10.5, 1.0),
+            (UnitType.Armor, Echelon.Battalion, 10.5, 1.0),
             (UnitType.Armor, Echelon.Company, 13.5, 1.0),
+            // The command element, screened by the armour and the guns. Deployed a
+            // size up: a company-sized HQ dies to one armour battalion's opening
+            // shot, which made decapitation end most games before anything else
+            // could.
+            (UnitType.Headquarters, Echelon.Battalion, 11.9, 1.0),
             // scouts run small and fast
             (UnitType.Recon, Echelon.Platoon, 4.0, 1.0),
             // guns to the rear
@@ -133,12 +141,14 @@ namespace Tactix.Core
                 Elevation = elevation,
                 Units = new List<Unit>(),
                 Ruleset = Ruleset.Standard,
+                TurnLimit = DefaultTurnLimit,
                 CurrentPlayer = 0,
                 TurnPhase = TurnPhase.Move,
                 TurnNumber = 1,
                 Winner = null,
             };
             DeployStandardArmies(state);
+            PlaceObjectives(state);
             return state;
         }
 
@@ -168,7 +178,66 @@ namespace Tactix.Core
                 state.Units.Add(NewUnit(id++, 1, type, echelon,
                     centre - (x - authoredCentre) * scale, state.Height - 1 - y));
 
+            state.StartingStrength = new[] { state.StrengthOf(0), state.StrengthOf(1) };
             ValidateDeployment(state);
+        }
+
+        /// <summary>
+        /// Places key ground: one high-value objective at the centre of the map and
+        /// a mirrored pair on each flank, so the layout is symmetric and neither
+        /// side starts closer to more points. Objectives are nudged off impassable
+        /// ground if the terrain lands badly.
+        /// </summary>
+        public static void PlaceObjectives(GameState state)
+        {
+            double cx = (state.Width - 1) / 2.0;
+            double cy = (state.Height - 1) / 2.0;
+            double flankX = state.Width * 0.22;
+            double flankY = state.Height * 0.22;
+
+            var layout = new (double x, double y, int value)[]
+            {
+                (cx, cy, 4),
+                (cx - flankX, cy - flankY, 2),
+                (cx + flankX, cy + flankY, 2),
+                (cx + flankX, cy - flankY, 2),
+                (cx - flankX, cy + flankY, 2),
+            };
+
+            state.Objectives.Clear();
+            int id = 0;
+            foreach (var (x, y, value) in layout)
+            {
+                var (px, py) = NudgeToPassableGround(state, x, y);
+                state.Objectives.Add(new Objective
+                {
+                    Id = id++,
+                    X = px,
+                    Y = py,
+                    Radius = 2.0,
+                    Value = value,
+                    ControlledBy = null,
+                });
+            }
+        }
+
+        /// <summary>Finds the nearest passable point, searching outward in rings.</summary>
+        private static (double x, double y) NudgeToPassableGround(GameState state, double x, double y)
+        {
+            if (state.TerrainAtPoint(x, y) != TerrainType.Impassable) return (x, y);
+            for (double radius = 0.5; radius <= 4.0; radius += 0.5)
+            {
+                for (int step = 0; step < 12; step++)
+                {
+                    double angle = 2 * Math.PI * step / 12;
+                    double px = x + Math.Cos(angle) * radius;
+                    double py = y + Math.Sin(angle) * radius;
+                    if (Geometry.IsInsideBoard(state, px, py) &&
+                        state.TerrainAtPoint(px, py) != TerrainType.Impassable)
+                        return (px, py);
+                }
+            }
+            return (x, y);
         }
 
         /// <summary>Fails loudly rather than starting a game from an illegal position.</summary>

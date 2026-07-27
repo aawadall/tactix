@@ -22,10 +22,28 @@ namespace Tactix.Core
         /// <summary>Smallest board the standard armies fit on.</summary>
         public const int MinimumSize = 16;
 
-        public static GameState Generate(int width, int height, int seed)
+        public static GameState Generate(int width, int height, int seed) =>
+            Generate(MapSpec.Generated(width, height, seed));
+
+        /// <summary>
+        /// Builds a playable opening state from a <see cref="MapSpec"/>. Standard
+        /// maps ignore size/seed; generated maps are deterministic for the seed.
+        /// </summary>
+        public static GameState Generate(MapSpec spec)
         {
-            if (width < MinimumSize || height < MinimumSize)
-                throw new ArgumentException($"Maps must be at least {MinimumSize}x{MinimumSize}", nameof(width));
+            if (spec == null) throw new ArgumentNullException(nameof(spec));
+            spec.Validate();
+
+            if (spec.IsStandard)
+            {
+                var standard = LevelConfig.CreateStandardGame();
+                standard.TurnLimit = spec.TurnLimit;
+                return standard;
+            }
+
+            int width = spec.Width;
+            int height = spec.Height;
+            int seed = spec.Seed.Value;
 
             var rng = new Random(seed);
 
@@ -48,6 +66,7 @@ namespace Tactix.Core
                 Elevation = ToJagged(elevation, width, height),
                 Units = new List<Unit>(),
                 Ruleset = Ruleset.Standard,
+                TurnLimit = spec.TurnLimit,
                 CurrentPlayer = 0,
                 TurnPhase = TurnPhase.Move,
                 TurnNumber = 1,
@@ -55,6 +74,7 @@ namespace Tactix.Core
             };
 
             LevelConfig.DeployStandardArmies(state);
+            LevelConfig.PlaceObjectives(state);
             return state;
         }
 

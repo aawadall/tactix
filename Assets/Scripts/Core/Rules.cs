@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -38,7 +38,7 @@ namespace Tactix.Core
         public static bool IsLegalMoveTarget(GameState state, int unitId, double targetX, double targetY)
         {
             var unit = state.GetUnit(unitId);
-            if (unit == null || state.Winner != null) return false;
+            if (unit == null || state.IsOver) return false;
             if (unit.Owner != state.CurrentPlayer || unit.HasMoved) return false;
             if (state.TurnPhase != TurnPhase.Move) return false;
 
@@ -70,13 +70,13 @@ namespace Tactix.Core
         /// <summary>
         /// Star-shaped description of everywhere the unit may move: the maximum
         /// travelable distance along <see cref="MoveRegionRays"/> evenly spaced
-        /// directions (terrain only — unit bodies are checked per destination).
+        /// directions (terrain only â€” unit bodies are checked per destination).
         /// Empty when the unit cannot move at all.
         /// </summary>
         public static double[] GetMoveRegion(GameState state, int unitId, int rayCount = MoveRegionRays)
         {
             var unit = state.GetUnit(unitId);
-            if (unit == null || state.Winner != null) return Array.Empty<double>();
+            if (unit == null || state.IsOver) return Array.Empty<double>();
             if (unit.Owner != state.CurrentPlayer || unit.HasMoved) return Array.Empty<double>();
             if (state.TurnPhase != TurnPhase.Move) return Array.Empty<double>();
 
@@ -129,7 +129,7 @@ namespace Tactix.Core
 
         /// <summary>
         /// Samples legal destinations for the unit (area-uniform within the
-        /// star-shaped region). Sampling is for bots, UI, and data generation —
+        /// star-shaped region). Sampling is for bots, UI, and data generation â€”
         /// legality is always decided by <see cref="IsLegalMoveTarget"/>, which
         /// every sample is validated against before being returned.
         /// </summary>
@@ -169,13 +169,13 @@ namespace Tactix.Core
         /// <summary>
         /// Legal attacks for the given unit: enemy units within Euclidean attack
         /// range, with line of sight required for units whose stats demand it.
-        /// Fully enumerable — the target space stays discrete.
+        /// Fully enumerable â€” the target space stays discrete.
         /// </summary>
         public static List<AttackAction> GetLegalAttacks(GameState state, int unitId)
         {
             var attacks = new List<AttackAction>();
             var unit = state.GetUnit(unitId);
-            if (unit == null || state.Winner != null) return attacks;
+            if (unit == null || state.IsOver) return attacks;
             if (unit.Owner != state.CurrentPlayer || unit.HasAttacked) return attacks;
 
             var stats = unit.Stats;
@@ -195,14 +195,14 @@ namespace Tactix.Core
         /// <summary>
         /// Legal support actions for the given unit: wounded friendly units of a
         /// type this supporter can work on, within support range. Fully
-        /// enumerable. Support has its own per-turn slot — it does not consume
+        /// enumerable. Support has its own per-turn slot â€” it does not consume
         /// the attack and never ends the movement phase.
         /// </summary>
         public static List<HealAction> GetLegalHeals(GameState state, int unitId)
         {
             var heals = new List<HealAction>();
             var unit = state.GetUnit(unitId);
-            if (unit == null || state.Winner != null) return heals;
+            if (unit == null || state.IsOver) return heals;
             if (unit.Owner != state.CurrentPlayer || unit.HasSupported) return heals;
 
             var stats = unit.Stats;
@@ -232,21 +232,23 @@ namespace Tactix.Core
         /// Legal amalgamations for this unit: friendly formations of the same
         /// size, standing within contact, where the combined formation fits.
         /// Both units spend their move, so neither may have moved already.
-        /// Enumerable — merge targets are discrete units.
+        /// Enumerable â€” merge targets are discrete units.
         /// </summary>
         public static List<MergeAction> GetLegalMerges(GameState state, int unitId)
         {
             var merges = new List<MergeAction>();
             var unit = state.GetUnit(unitId);
-            if (unit == null || state.Winner != null) return merges;
+            if (unit == null || state.IsOver) return merges;
             if (unit.Owner != state.CurrentPlayer || unit.HasMoved) return merges;
             if (state.TurnPhase != TurnPhase.Move) return merges;
             if (EchelonScale.Larger(unit.Echelon) == null) return merges; // already at the top
+            if (unit.Type == UnitType.Headquarters) return merges;        // command elements do not reorganise
 
             foreach (var other in state.Units)
             {
                 if (other.Id == unit.Id || other.Owner != unit.Owner) continue;
                 if (other.Echelon != unit.Echelon || other.HasMoved) continue;
+                if (other.Type == UnitType.Headquarters) continue;
 
                 double contact = unit.Stats.Radius + other.Stats.Radius + MergeContactBuffer;
                 if (Distance(unit.X, unit.Y, other.X, other.Y) > contact) continue;
@@ -367,9 +369,10 @@ namespace Tactix.Core
 
         private static bool CanSplit(GameState state, Unit unit)
         {
-            if (unit == null || state.Winner != null) return false;
+            if (unit == null || state.IsOver) return false;
             if (unit.Owner != state.CurrentPlayer || unit.HasMoved) return false;
             if (state.TurnPhase != TurnPhase.Move) return false;
+            if (unit.Type == UnitType.Headquarters) return false; // command elements do not reorganise
             return EchelonScale.Smaller(unit.Echelon) != null;
         }
 
@@ -388,14 +391,14 @@ namespace Tactix.Core
         /// <summary>
         /// Every legal attack plus EndTurn, together with a sample of legal moves
         /// per movable unit. NOTE: unlike the discrete engine this is not an
-        /// exhaustive enumeration — move targets are continuous. It is a valid
+        /// exhaustive enumeration â€” move targets are continuous. It is a valid
         /// action set (everything returned is legal), suitable for baseline bots
         /// and data generation.
         /// </summary>
         public static List<GameAction> GetAllLegalActions(GameState state, Random rng = null, int movesPerUnit = 8)
         {
             var actions = new List<GameAction>();
-            if (state.Winner != null) return actions;
+            if (state.IsOver) return actions;
             rng = rng ?? new Random(0);
 
             foreach (var unit in state.Units)
@@ -421,11 +424,11 @@ namespace Tactix.Core
         /// Under a stochastic ruleset a random source is required: damage rolls and
         /// movement shortfalls are drawn from it, in a fixed order, so that
         /// recording the draws makes a game exactly replayable. Passing an
-        /// unnecessary source is harmless — it simply goes unused.
+        /// unnecessary source is harmless â€” it simply goes unused.
         /// </summary>
         public static GameState Apply(GameState state, GameAction action, IRandomSource rng = null)
         {
-            if (state.Winner != null)
+            if (state.IsOver)
                 throw new IllegalActionException("Game is already over");
             if (state.Ruleset != null && state.Ruleset.IsStochastic && rng == null)
                 throw new InvalidOperationException(
@@ -462,7 +465,7 @@ namespace Tactix.Core
         /// Where a formation actually ends up. Small units arrive exactly where
         /// ordered; larger ones may fall short by up to their friction fraction,
         /// stopping early along the same heading. The shortfall is only applied
-        /// where it leaves a legal position — a formation never grinds to a halt
+        /// where it leaves a legal position â€” a formation never grinds to a halt
         /// inside another unit.
         /// </summary>
         private static (double x, double y) ResolveMoveDestination(
@@ -514,9 +517,12 @@ namespace Tactix.Core
             if (target.Hp <= 0)
             {
                 attacker.Xp += 2;
+                // Destroying a formation is worth its strength, so killing a
+                // battalion counts for twice what killing a company does.
+                next.Score[attacker.Owner] += target.Stats.MaxHp;
+                bool wasHeadquarters = target.Type == UnitType.Headquarters;
                 next.Units.Remove(target);
-                if (next.Units.All(u => u.Owner == attacker.Owner))
-                    next.Winner = attacker.Owner;
+                EvaluateCombatOutcome(next, attacker.Owner, target.Owner, wasHeadquarters);
             }
             return next;
         }
@@ -643,6 +649,11 @@ namespace Tactix.Core
         private static GameState ApplyEndTurn(GameState state)
         {
             var next = state.Clone();
+
+            // The turn's ground is settled before the turn changes hands.
+            UpdateObjectiveControl(next);
+            AwardObjectivePoints(next, next.CurrentPlayer);
+
             next.CurrentPlayer = 1 - next.CurrentPlayer;
             next.TurnPhase = TurnPhase.Move;
             next.TurnNumber++;
@@ -652,7 +663,88 @@ namespace Tactix.Core
                 unit.HasAttacked = false;
                 unit.HasSupported = false;
             }
+
+            if (next.TurnLimit.HasValue && next.TurnNumber > next.TurnLimit.Value)
+                DecideOnPoints(next);
+
             return next;
+        }
+
+        // ---------- objectives, scoring, and endings ----------
+
+        /// <summary>
+        /// Recomputes who holds each objective. A side takes an objective by being
+        /// the only one with a unit inside it; if both are present it is contested
+        /// and does not change hands; if neither is, it stays with whoever holds it.
+        /// </summary>
+        public static void UpdateObjectiveControl(GameState state)
+        {
+            foreach (var objective in state.Objectives)
+            {
+                bool zero = false, one = false;
+                foreach (var unit in state.Units)
+                {
+                    if (Distance(unit.X, unit.Y, objective.X, objective.Y) > objective.Radius) continue;
+                    if (unit.Owner == 0) zero = true; else one = true;
+                }
+
+                objective.Contested = zero && one;
+                if (objective.Contested) continue;
+                if (zero) objective.ControlledBy = 0;
+                else if (one) objective.ControlledBy = 1;
+            }
+        }
+
+        private static void AwardObjectivePoints(GameState state, int player)
+        {
+            foreach (var objective in state.Objectives)
+            {
+                if (!objective.Contested && objective.ControlledBy == player)
+                    state.Score[player] += objective.Value;
+            }
+        }
+
+        /// <summary>
+        /// Checks the endings that a destroyed formation can trigger: wiping out an
+        /// army, killing its headquarters, or breaking its will to fight.
+        /// </summary>
+        private static void EvaluateCombatOutcome(GameState state, int attacker, int defender, bool killedHeadquarters)
+        {
+            if (state.IsOver) return;
+
+            if (state.Units.All(u => u.Owner == attacker))
+            {
+                Finish(state, attacker, GameOutcome.Elimination);
+                return;
+            }
+
+            if (killedHeadquarters)
+            {
+                Finish(state, attacker, GameOutcome.Decapitation);
+                return;
+            }
+
+            int starting = state.StartingStrength[defender];
+            if (starting > 0 && state.StrengthOf(defender) < starting * state.RoutThreshold)
+                Finish(state, attacker, GameOutcome.Rout);
+        }
+
+        private static void DecideOnPoints(GameState state)
+        {
+            if (state.IsOver) return;
+            if (state.Score[0] == state.Score[1])
+            {
+                state.Winner = null;
+                state.Outcome = GameOutcome.Draw;
+                return;
+            }
+            Finish(state, state.Score[0] > state.Score[1] ? 0 : 1, GameOutcome.Score);
+        }
+
+        private static void Finish(GameState state, int winner, GameOutcome outcome)
+        {
+            state.Winner = winner;
+            state.Outcome = outcome;
         }
     }
 

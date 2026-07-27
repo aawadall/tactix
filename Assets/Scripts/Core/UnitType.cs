@@ -22,5 +22,10 @@ namespace Tactix.Core
         /// unit's stats stay a pure function of its type and echelon.
         /// </summary>
         CombinedArms = 7,
+        /// <summary>
+        /// The formation's command element. Lightly armed but far-seeing, and
+        /// losing it loses the game. Headquarters neither amalgamate nor detach.
+        /// </summary>
+        Headquarters = 8,
     }
 }

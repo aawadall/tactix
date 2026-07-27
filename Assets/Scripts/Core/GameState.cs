@@ -54,9 +54,44 @@ namespace Tactix.Core
         [JsonProperty("turnNumber")]
         public int TurnNumber { get; set; } = 1;
 
-        /// <summary>Winning player (0 or 1), or null while the game is in progress.</summary>
+        /// <summary>Key ground contested for points.</summary>
+        [JsonProperty("objectives")]
+        public List<Objective> Objectives { get; set; } = new List<Objective>();
+
+        /// <summary>Victory points, indexed by player.</summary>
+        [JsonProperty("score")]
+        public int[] Score { get; set; } = { 0, 0 };
+
+        /// <summary>
+        /// Each side's combat strength at deployment (sum of max HP), used as the
+        /// baseline for the rout threshold.
+        /// </summary>
+        [JsonProperty("startingStrength")]
+        public int[] StartingStrength { get; set; } = { 0, 0 };
+
+        /// <summary>Ply count after which the game is decided on points; null for unlimited.</summary>
+        [JsonProperty("turnLimit")]
+        public int? TurnLimit { get; set; }
+
+        /// <summary>Fraction of starting strength below which an army breaks.</summary>
+        [JsonProperty("routThreshold")]
+        public double RoutThreshold { get; set; } = 0.25;
+
+        /// <summary>Winning player (0 or 1); null while in progress *and* on a draw.</summary>
         [JsonProperty("winner")]
         public int? Winner { get; set; }
+
+        /// <summary>
+        /// How the game ended, or null while it is still running. Prefer
+        /// <see cref="IsOver"/> over checking <see cref="Winner"/>, which is also
+        /// null for a draw.
+        /// </summary>
+        [JsonProperty("outcome")]
+        [JsonConverter(typeof(StringEnumConverter), true)]
+        public GameOutcome? Outcome { get; set; }
+
+        [JsonIgnore]
+        public bool IsOver => Outcome.HasValue;
 
         [JsonIgnore]
         public int Height => Terrain.Length;
@@ -88,6 +123,9 @@ namespace Tactix.Core
 
         public Unit GetUnit(int unitId) => Units.FirstOrDefault(u => u.Id == unitId);
 
+        /// <summary>A player's surviving combat strength: the sum of their units' maximum HP.</summary>
+        public int StrengthOf(int player) => Units.Where(u => u.Owner == player).Sum(u => u.Stats.MaxHp);
+
         /// <summary>The unit whose body covers the given world position, if any.</summary>
         public Unit GetUnitAtPoint(double x, double y)
         {
@@ -113,11 +151,17 @@ namespace Tactix.Core
                 Terrain = terrain,
                 Elevation = elevation,
                 Units = Units.Select(u => u.Clone()).ToList(),
+                Objectives = Objectives.Select(o => o.Clone()).ToList(),
+                Score = (int[])Score.Clone(),
+                StartingStrength = (int[])StartingStrength.Clone(),
+                TurnLimit = TurnLimit,
+                RoutThreshold = RoutThreshold,
                 Ruleset = Ruleset?.Clone() ?? Ruleset.Deterministic,
                 CurrentPlayer = CurrentPlayer,
                 TurnPhase = TurnPhase,
                 TurnNumber = TurnNumber,
                 Winner = Winner,
+                Outcome = Outcome,
             };
         }
 

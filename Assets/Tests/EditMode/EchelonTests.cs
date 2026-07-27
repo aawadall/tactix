@@ -195,14 +195,14 @@ namespace Tactix.Core.Tests
             var echelons = state.Units.Select(u => u.Echelon).Distinct().ToList();
             Assert.Greater(echelons.Count, 1, "the standard order of battle should mix formation sizes");
 
-            // A brigade of armour should plainly outclass a platoon of infantry.
-            var brigade = UnitStats.For(UnitType.Armor, Echelon.Brigade);
+            // A battalion of armour should plainly outclass a platoon of infantry.
+            var battalion = UnitStats.For(UnitType.Armor, Echelon.Battalion);
             var platoon = UnitStats.For(UnitType.Infantry, Echelon.Platoon);
-            Assert.Greater(brigade.MaxHp, platoon.MaxHp * 3);
-            Assert.Less(brigade.MoveRange, UnitStats.For(UnitType.Armor, Echelon.Platoon).MoveRange);
+            Assert.Greater(battalion.MaxHp, platoon.MaxHp * 3);
+            Assert.Less(battalion.MoveRange, UnitStats.For(UnitType.Armor, Echelon.Platoon).MoveRange);
 
             string json = state.ToJson();
-            StringAssert.Contains("\"echelon\":\"brigade\"", json);
+            StringAssert.Contains("\"echelon\":\"battalion\"", json);
             StringAssert.Contains("\"echelon\":\"section\"", json);
             Assert.AreEqual(json, GameState.FromJson(json).ToJson());
         }

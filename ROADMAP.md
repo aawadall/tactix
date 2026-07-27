@@ -1,10 +1,14 @@
-# Tactix roadmap — proposed features
+# Tactix roadmap — proposed engine / ML features
 
-Design notes for features discussed but **not yet implemented**. Each entry
-records what the feature is, why it is worth doing, a concrete design sketch,
-what it costs in schema and ML terms, and its rough size. Nothing here is
-committed to; the sequencing at the bottom is a recommendation, not a plan of
-record.
+Design notes for rules and training-data features discussed but **not yet
+implemented** (or only partially). For the **product** plan to reach a solid
+indie game (phases, AI, content, polish, ship), see
+[`PRODUCT_ROADMAP.md`](PRODUCT_ROADMAP.md).
+
+Each entry below records what the feature is, why it is worth doing, a concrete
+design sketch, what it costs in schema and ML terms, and its rough size. Nothing
+here is committed to; the sequencing at the bottom is a recommendation, not a
+plan of record.
 
 Current baseline: continuous space, log **schemaVersion 6**, 24x24 standard or
 generated maps, 14 units per side, 60 tests. See `README.md` for the shipped
