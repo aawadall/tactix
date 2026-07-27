@@ -24,21 +24,23 @@ Players cannot inspect or iterate a map before committing to a match.
 
 ## Goal
 
-A **Map Workshop** step between main menu and match:
+A **map shell** (C&C-style): the board is always visible on the left; a persistent
+right **Command Dock** holds workshop controls before Start and match
+stats/actions after. Chrome is industrial gunmetal with amber/green readouts,
+cameo unit block, order button grid, and map bezel. Unit orders are issued only
+from the dock — there is no floating menu over the map.
 
-1. Choose or roll a **MapSpec** (parameters + seed).
-2. Generate terrain / elevation / objectives (and optionally armies).
-3. **Preview** the board (contours, terrain marks, objectives, deployment zones).
-4. Reroll / tweak / lock.
-5. Start game with that locked map (seed + spec written into the log header).
+1. Boot into shell with a live generated preview.
+2. Choose mode / size / Reroll / Standard in the dock.
+3. **Start Match** — same framing; dock switches to command (status, unit stats, orders, End Turn).
+4. Esc / Menu returns to the shell preview.
 
 Constraints (unchanged project rules):
 
 - Generation stays in `Tactix.Core`, pure and deterministic for `(spec, seed)`.
-- `Rules` remains authoritative; the workshop only produces a legal `GameState`
-  start (or a terrain shell that `LevelConfig` deploys onto).
-- Schema: log `mapSeed` (already) plus a structured `mapSpec` when parameters
-  expand beyond size+seed.
+- `Rules` remains authoritative; the shell only produces a legal `GameState`
+  start.
+- Schema: log `mapSeed` plus structured `mapSpec` (schema v10).
 
 ---
 
@@ -159,14 +161,15 @@ spec and keep today’s behaviour).
 | Step | Scope | Depends on |
 |------|--------|------------|
 | **MG0** | `MapSpec` + `Generate(MapSpec)`; wire size+seed from UI | Core only | **Shipped** |
-| **MG1** | Map Workshop screen: preview, Reroll, Start; cartographic board (paper + contours + forest/rock/objective symbols, no tile fills) | MG0 + BoardRenderer | **Shipped** |
+| **MG1** | Map Workshop / shell: preview, Reroll, Start; cartographic board | MG0 + BoardRenderer | **Shipped** |
+| **Shell** | C&C dock (workshop → command); generator + topo render rewrite | MG1 | **Shipped** |
 | **MG2** | Sliders: relief / forest / rock | MG1 | |
 | **MG3** | Objective count, turn limit in workshop | MG1 | |
 | **MG4** | Era / force templates (backlog B3) | Era packs | |
 | **MG5** | Asymmetric / historical fixed maps (backlog B2) | Scenarios | |
 
 **Recommended first ship:** MG0 + MG1 (preview + seed + size). That alone makes
-“pre-game map generator” real — **and is now in the build.**
+“pre-game map generator” real — **and is now in the build** (plus the map shell).
 
 ---
 
@@ -184,7 +187,7 @@ spec and keep today’s behaviour).
 | Topic | Link |
 |-------|------|
 | Skirmish options | [`PRODUCT_ROADMAP.md`](PRODUCT_ROADMAP.md) Phase 3.1 |
-| Cleaner map art (symbols, no tile fills) | **Shipped with MG1** — workshop and match share cartographic `BoardRenderer` |
+| Cleaner map art (symbols, no tile fills) | **Shipped** — topo wash + batched contours + sparse annotations; C&C shell dock |
 | Historical scenarios | Fixed `MapSpec` / baked layouts, not only procedural |
 | Era packs | `forceTemplate` + terrain palettes later |
 

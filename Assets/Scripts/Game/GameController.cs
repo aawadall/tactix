@@ -145,7 +145,7 @@ namespace Tactix.Game
             }
             else
             {
-                _ui.ShowModeSelect();
+                OpenMapWorkshop(GameMode.Hotseat);
             }
         }
 
@@ -156,7 +156,7 @@ namespace Tactix.Game
             var cam = camGo.AddComponent<Camera>();
             cam.orthographic = true;
             cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.78f, 0.74f, 0.66f);
+            cam.backgroundColor = new Color(0.14f, 0.15f, 0.12f);
         }
 
         // World-unit margins kept clear around the board for the overlay UI.
@@ -164,7 +164,7 @@ namespace Tactix.Game
         private const float BottomMargin = 1.6f;
         private const float SideMargin = 0.8f;
 
-        /// <summary>Share of the viewport reserved for the Field Manual / Map Workshop side panel.</summary>
+        /// <summary>Share of the viewport reserved for the persistent C&amp;C command dock.</summary>
         private const float ManualPanelShare = 0.34f;
 
         private void FrameBoard()
@@ -173,15 +173,14 @@ namespace Tactix.Game
             float cx = (State.Width - 1) / 2f;
             float cy = (State.Height - 1) / 2f;
 
-            bool sidePanel = InFieldManual || InMapWorkshop;
-            float usableWidthShare = sidePanel ? 1f - ManualPanelShare : 1f;
+            // Always reserve the right dock (workshop, match, or field manual).
+            float usableWidthShare = 1f - ManualPanelShare;
             float halfHeight = (State.Height + TopMargin + BottomMargin) / 2f;
             float halfWidth = (State.Width + 2f * SideMargin) / (2f * cam.aspect * usableWidthShare);
             cam.orthographicSize = Mathf.Max(halfHeight, halfWidth);
 
-            // Shift the view right so the board sits in the free part of the screen.
             float viewportWorldWidth = 2f * cam.orthographicSize * cam.aspect;
-            float shift = sidePanel ? viewportWorldWidth * (ManualPanelShare / 2f) : 0f;
+            float shift = viewportWorldWidth * (ManualPanelShare / 2f);
             cam.transform.position = new Vector3(cx + shift, cy + (TopMargin - BottomMargin) / 2f, -10f);
 
             _framedWidth = Screen.width;
@@ -224,29 +223,24 @@ namespace Tactix.Game
             _board.BuildTerrain(State);
             _input.ClearSelection();
             RefreshViews();
-            _ui.HideMapWorkshop();
-            _ui.HidePanels();
+            _ui.ShowCommandDock();
         }
 
         public void BackToMenu()
         {
             EndLoggerIfOpen();
-            InMapWorkshop = false;
-            WorkshopSpec = null;
             _matchSpec = null;
-            State = null;
             Orders.ClearAll();
             ClockSecondsRemaining = 0f;
             _input.ClearSelection();
-            _board.Clear();
-            _ui.HideMapWorkshop();
-            _ui.ShowModeSelect();
+            WorkshopSpec = null;
+            OpenMapWorkshop(Mode);
         }
 
-        // ---------- map workshop ----------
+        // ---------- map workshop / shell ----------
 
         /// <summary>
-        /// Opens the Map Workshop: preview a board, reroll / resize, then Start Match.
+        /// Opens the shell: live map preview + workshop controls in the command dock.
         /// Does not open the game logger until the match begins.
         /// </summary>
         public void OpenMapWorkshop(GameMode mode)
@@ -255,10 +249,20 @@ namespace Tactix.Game
             InFieldManual = false;
             InMapWorkshop = true;
             _pendingMode = mode;
-            WorkshopSpec = MapSpec.Generated(RandomMapSize, Random.Range(int.MinValue, int.MaxValue));
+            Mode = mode;
+            if (WorkshopSpec == null)
+                WorkshopSpec = MapSpec.Generated(RandomMapSize, Random.Range(int.MinValue, int.MaxValue));
             _input.ClearSelection();
             _ui.CloseLegend();
             RefreshWorkshopPreview();
+        }
+
+        public void SetPendingMode(GameMode mode)
+        {
+            if (!InMapWorkshop) return;
+            _pendingMode = mode;
+            Mode = mode;
+            _ui.ShowMapWorkshop(WorkshopSpec, _pendingMode);
         }
 
         public void WorkshopReroll()
@@ -290,19 +294,12 @@ namespace Tactix.Game
             if (!InMapWorkshop || WorkshopSpec == null) return;
             var locked = WorkshopSpec.Clone();
             InMapWorkshop = false;
-            _ui.HideMapWorkshop();
             BeginMatch(_pendingMode, locked);
         }
 
         public void CloseMapWorkshop()
         {
-            if (!InMapWorkshop) return;
-            InMapWorkshop = false;
-            WorkshopSpec = null;
-            State = null;
-            _board.Clear();
-            _ui.HideMapWorkshop();
-            _ui.ShowModeSelect();
+            QuitGame();
         }
 
         private void RefreshWorkshopPreview()
@@ -568,10 +565,8 @@ namespace Tactix.Game
         public void CloseFieldManual()
         {
             InFieldManual = false;
-            State = null;
-            _board.Clear();
             _ui.HideFieldManual();
-            _ui.ShowModeSelect();
+            OpenMapWorkshop(Mode);
         }
 
         private void RenderFieldManualPage()

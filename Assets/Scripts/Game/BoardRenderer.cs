@@ -49,17 +49,18 @@ namespace Tactix.Game
 
             float cx = (state.Width - 1) * 0.5f;
             float cy = (state.Height - 1) * 0.5f;
-            float boardW = state.Width + 0.6f;
-            float boardH = state.Height + 0.6f;
+            float boardW = state.Width + 0.8f;
+            float boardH = state.Height + 0.8f;
 
-            // Parchment base (one sheet — not a WxH tile grid).
             _terrain.Add(MakeSprite("Paper", VisualAssets.Paper, Color.white,
                 new Vector3(cx, cy, TileZ),
                 new Vector3(boardW, boardH, 1f), 0f, TileOrder));
 
             BuildElevationWash(state);
+            BuildForestHatch(state);
+            BuildBatchedContours(state);
             BuildTerrainSymbols(state);
-            BuildContours(state);
+            BuildBorderAnnotations(state);
             BuildSpotHeights(state);
             BuildObjectives(state);
         }
@@ -82,7 +83,6 @@ namespace Tactix.Game
                 for (int x = 0; x < w; x++)
                 {
                     float t = state.ElevationAt(x, y) / (float)maxE;
-                    // Ease so low ground stays nearly paper-white.
                     t = t * t;
                     px[y * w + x] = Color.Lerp(VisualAssets.ElevationWashLow, VisualAssets.ElevationWashHigh, t);
                 }
@@ -95,17 +95,44 @@ namespace Tactix.Game
             tex.SetPixels(px);
             tex.Apply();
             var sprite = Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 1f);
-            float cx = (w - 1) * 0.5f;
-            float cy = (h - 1) * 0.5f;
             _terrain.Add(MakeSprite("ElevationWash", sprite, Color.white,
-                new Vector3(cx, cy, TileZ - 0.005f),
+                new Vector3((w - 1) * 0.5f, (h - 1) * 0.5f, TileZ - 0.005f),
                 Vector3.one, 0f, TileOrder));
         }
 
-        /// <summary>
-        /// Sparse topo marks — forests get ~1/3 of tiles with jittered pines;
-        /// rocks get small peak marks on impassable cells. No filled color tiles.
-        /// </summary>
+        /// <summary>Light green wash over forest cells (one texture), under symbols.</summary>
+        private void BuildForestHatch(GameState state)
+        {
+            int w = state.Width, h = state.Height;
+            bool any = false;
+            var px = new Color[w * h];
+            var forestTint = new Color(0.28f, 0.48f, 0.30f, 0.16f);
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    if (state.TerrainAt(x, y) == TerrainType.Forest)
+                    {
+                        px[y * w + x] = forestTint;
+                        any = true;
+                    }
+                    else px[y * w + x] = Color.clear;
+                }
+            if (!any) return;
+
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp,
+            };
+            tex.SetPixels(px);
+            tex.Apply();
+            var sprite = Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 1f);
+            _terrain.Add(MakeSprite("ForestWash", sprite, Color.white,
+                new Vector3((w - 1) * 0.5f, (h - 1) * 0.5f, TileZ - 0.008f),
+                Vector3.one, 0f, TileOrder));
+        }
+
+        /// <summary>Sparse topo marks — a few pines per stand, small peaks on rock.</summary>
         private void BuildTerrainSymbols(GameState state)
         {
             for (int y = 0; y < state.Height; y++)
@@ -116,20 +143,21 @@ namespace Tactix.Game
                     if (terrain == TerrainType.Forest)
                     {
                         if (!ShouldPlaceForestMark(x, y)) continue;
-                        float jx = ((Hash2(x, y) % 9) - 4) * 0.04f;
-                        float jy = ((Hash2(y, x) % 9) - 4) * 0.04f;
-                        float scale = 0.38f + (Hash2(x * 3, y * 5) % 5) * 0.03f;
+                        float jx = ((Hash2(x, y) % 9) - 4) * 0.05f;
+                        float jy = ((Hash2(y, x) % 9) - 4) * 0.05f;
+                        float scale = 0.32f + (Hash2(x * 3, y * 5) % 5) * 0.025f;
                         _terrain.Add(MakeSprite($"Forest {x},{y}", VisualAssets.ForestSymbol, VisualAssets.ForestInk,
-                            new Vector3(x + jx, y + jy, TileZ - 0.01f),
+                            new Vector3(x + jx, y + jy, TileZ - 0.012f),
                             Vector3.one * scale, 0f, TileOrder + 1));
                     }
                     else if (terrain == TerrainType.Impassable)
                     {
+                        if ((Hash2(x, y) % 100) > 70) continue;
                         float jx = ((Hash2(x + 11, y) % 7) - 3) * 0.03f;
                         float jy = ((Hash2(y + 7, x) % 7) - 3) * 0.03f;
                         _terrain.Add(MakeSprite($"Rock {x},{y}", VisualAssets.RockSymbol, VisualAssets.RockInk,
-                            new Vector3(x + jx, y + jy, TileZ - 0.01f),
-                            Vector3.one * 0.32f, 0f, TileOrder + 1));
+                            new Vector3(x + jx, y + jy, TileZ - 0.012f),
+                            Vector3.one * 0.28f, 0f, TileOrder + 1));
                     }
                 }
             }
@@ -137,10 +165,9 @@ namespace Tactix.Game
 
         private static bool ShouldPlaceForestMark(int x, int y)
         {
-            // ~30% density, biased toward a staggered lattice so stands read as texture.
             int h = Hash2(x, y);
-            if ((x + y * 2) % 3 == 0) return (h % 100) < 55;
-            return (h % 100) < 18;
+            if ((x + y * 3) % 4 == 0) return (h % 100) < 40;
+            return (h % 100) < 10;
         }
 
         private static int Hash2(int a, int b)
@@ -151,6 +178,38 @@ namespace Tactix.Game
                 n = (n ^ (n >> 13)) * 1274126177;
                 return n & 0x7fffffff;
             }
+        }
+
+        private void BuildBorderAnnotations(GameState state)
+        {
+            float pad = 0.55f;
+            float x0 = -pad, y0 = -pad;
+            float x1 = state.Width - 1 + pad, y1 = state.Height - 1 + pad;
+            var ink = new Color(VisualAssets.ContourColor.r, VisualAssets.ContourColor.g,
+                VisualAssets.ContourColor.b, 0.35f);
+            const float t = 0.03f;
+            AddTerrainQuad(new Vector2(x0, y0), new Vector2(x1, y0), t, ink);
+            AddTerrainQuad(new Vector2(x0, y1), new Vector2(x1, y1), t, ink);
+            AddTerrainQuad(new Vector2(x0, y0), new Vector2(x0, y1), t, ink);
+            AddTerrainQuad(new Vector2(x1, y0), new Vector2(x1, y1), t, ink);
+
+            _terrain.Add(MakeLabel("0,0", new Vector3(x0 + 0.35f, y0 + 0.25f, OverlayZ),
+                VisualAssets.ElevationDigitColor, 0.055f, LabelOrder));
+            _terrain.Add(MakeLabel($"{state.Width - 1},{state.Height - 1}",
+                new Vector3(x1 - 0.9f, y1 - 0.25f, OverlayZ),
+                VisualAssets.ElevationDigitColor, 0.055f, LabelOrder));
+        }
+
+        private void AddTerrainQuad(Vector2 from, Vector2 to, float thickness, Color color)
+        {
+            Vector2 delta = to - from;
+            float length = delta.magnitude;
+            if (length < 1e-4f) return;
+            Vector2 mid = (from + to) * 0.5f;
+            float angle = Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg;
+            _terrain.Add(MakeSprite("Border", VisualAssets.Square, color,
+                new Vector3(mid.x, mid.y, OverlayZ + 0.01f),
+                new Vector3(length + thickness * 0.5f, thickness, 1f), angle, ContourOrder));
         }
 
         private void BuildObjectives(GameState state)
@@ -171,14 +230,14 @@ namespace Tactix.Game
         }
 
         /// <summary>
-        /// Marching squares over the elevation field: for each half-level
-        /// threshold, emit the isoline crossing each cell of tile centres. This
-        /// produces the diagonal, organically shaped contours of a topographic
-        /// map rather than tile-edge staircases. Contours are drawn heavier
-        /// where the relief steps by 2 or more (a cliff, impassable to movement).
+        /// Marching-squares isolines batched into two meshes (normal / cliff)
+        /// instead of one GameObject per segment.
         /// </summary>
-        private void BuildContours(GameState state)
+        private void BuildBatchedContours(GameState state)
         {
+            var normal = new List<Vector2>();
+            var cliffs = new List<Vector2>();
+
             int maxElevation = 0;
             for (int y = 0; y < state.Height; y++)
                 for (int x = 0; x < state.Width; x++)
@@ -210,28 +269,43 @@ namespace Tactix.Game
 
                         float span = Mathf.Max(Mathf.Max(bl, br), Mathf.Max(tr, tl))
                                    - Mathf.Min(Mathf.Min(bl, br), Mathf.Min(tr, tl));
-                        bool cliff = span >= 2f;
+                        var sink = span >= 2f ? cliffs : normal;
 
                         switch (index)
                         {
-                            case 1: case 14: AddContour(left, bottom, cliff); break;
-                            case 2: case 13: AddContour(bottom, right, cliff); break;
-                            case 3: case 12: AddContour(left, right, cliff); break;
-                            case 4: case 11: AddContour(right, top, cliff); break;
-                            case 6: case 9: AddContour(bottom, top, cliff); break;
-                            case 7: case 8: AddContour(left, top, cliff); break;
-                            case 5: // saddle
-                                AddContour(left, bottom, cliff);
-                                AddContour(right, top, cliff);
+                            case 1: case 14: EmitSeg(sink, left, bottom); break;
+                            case 2: case 13: EmitSeg(sink, bottom, right); break;
+                            case 3: case 12: EmitSeg(sink, left, right); break;
+                            case 4: case 11: EmitSeg(sink, right, top); break;
+                            case 6: case 9: EmitSeg(sink, bottom, top); break;
+                            case 7: case 8: EmitSeg(sink, left, top); break;
+                            case 5:
+                                EmitSeg(sink, left, bottom);
+                                EmitSeg(sink, right, top);
                                 break;
-                            case 10: // saddle
-                                AddContour(left, top, cliff);
-                                AddContour(bottom, right, cliff);
+                            case 10:
+                                EmitSeg(sink, left, top);
+                                EmitSeg(sink, bottom, right);
                                 break;
                         }
                     }
                 }
             }
+
+            if (normal.Count > 0)
+                _terrain.Add(MakeContourMesh("Contours", normal, 0.038f, VisualAssets.ContourColor));
+            if (cliffs.Count > 0)
+            {
+                var cliffColor = new Color(VisualAssets.ContourColor.r, VisualAssets.ContourColor.g,
+                    VisualAssets.ContourColor.b, Mathf.Min(1f, VisualAssets.ContourColor.a + 0.15f));
+                _terrain.Add(MakeContourMesh("Cliffs", cliffs, 0.1f, cliffColor));
+            }
+        }
+
+        private static void EmitSeg(List<Vector2> sink, Vector2 a, Vector2 b)
+        {
+            sink.Add(a);
+            sink.Add(b);
         }
 
         private static float Cross(float a, float b, float threshold)
@@ -240,19 +314,43 @@ namespace Tactix.Game
             return Mathf.Abs(d) < 1e-6f ? 0.5f : Mathf.Clamp01((threshold - a) / d);
         }
 
-        private void AddContour(Vector2 from, Vector2 to, bool cliff)
+        private GameObject MakeContourMesh(string name, List<Vector2> segs, float thickness, Color color)
         {
-            Vector2 delta = to - from;
-            float length = delta.magnitude;
-            if (length < 1e-4f) return;
+            int count = segs.Count / 2;
+            var verts = new Vector3[count * 4];
+            var cols = new Color[count * 4];
+            var tris = new int[count * 6];
+            float half = thickness * 0.5f;
 
-            Vector2 mid = (from + to) * 0.5f;
-            float angle = Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg;
-            float thickness = cliff ? 0.11f : 0.04f;
+            for (int i = 0; i < count; i++)
+            {
+                Vector2 a = segs[i * 2], b = segs[i * 2 + 1];
+                Vector2 dir = b - a;
+                float len = dir.magnitude;
+                if (len < 1e-5f) dir = Vector2.right;
+                else dir /= len;
+                Vector2 n = new Vector2(-dir.y, dir.x) * half;
+                int v = i * 4;
+                verts[v] = new Vector3(a.x + n.x, a.y + n.y, OverlayZ);
+                verts[v + 1] = new Vector3(a.x - n.x, a.y - n.y, OverlayZ);
+                verts[v + 2] = new Vector3(b.x - n.x, b.y - n.y, OverlayZ);
+                verts[v + 3] = new Vector3(b.x + n.x, b.y + n.y, OverlayZ);
+                for (int k = 0; k < 4; k++) cols[v + k] = color;
+                int t = i * 6;
+                tris[t] = v; tris[t + 1] = v + 1; tris[t + 2] = v + 2;
+                tris[t + 3] = v; tris[t + 4] = v + 2; tris[t + 5] = v + 3;
+            }
 
-            _terrain.Add(MakeSprite("Contour", VisualAssets.Square, VisualAssets.ContourColor,
-                new Vector3(mid.x, mid.y, OverlayZ), new Vector3(length + thickness * 0.5f, thickness, 1f),
-                angle, ContourOrder));
+            var mesh = new Mesh { vertices = verts, colors = cols, triangles = tris };
+            mesh.RecalculateBounds();
+
+            var go = new GameObject(name);
+            go.transform.SetParent(transform, false);
+            go.AddComponent<MeshFilter>().mesh = mesh;
+            var renderer = go.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = VisualAssets.ShapeMaterial;
+            renderer.sortingOrder = ContourOrder;
+            return go;
         }
 
         /// <summary>
@@ -270,7 +368,6 @@ namespace Tactix.Game
                     int elevation = state.ElevationAt(x, y);
                     if (elevation <= 0 || !IsSummitTile(state, x, y)) continue;
 
-                    // Flood the connected summit plateau and label its centre.
                     var region = new List<Vector2Int>();
                     var queue = new Queue<Vector2Int>();
                     queue.Enqueue(new Vector2Int(x, y));
@@ -312,6 +409,7 @@ namespace Tactix.Game
             return true;
         }
 
+        // ---------- units ----------
         // ---------- units ----------
 
         public void RenderUnits(GameState state, OrderBook orders = null, bool showAutonomy = false)

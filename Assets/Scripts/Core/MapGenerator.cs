@@ -4,15 +4,9 @@ using System.Collections.Generic;
 namespace Tactix.Core
 {
     /// <summary>
-    /// Procedural map generation: fractal value noise for the relief, symmetrized
-    /// through the board centre so neither player gets the better ground, quantized
-    /// into elevation bands, then repaired so every tile stays reachable under the
-    /// cliff rule.
-    ///
-    /// Generation is fully deterministic for a given (width, height, seed), and the
-    /// seed is recorded in the game log, so any logged game can be reproduced
-    /// exactly. This is the same procedure that produced the baked standard map in
-    /// <see cref="LevelConfig"/>.
+    /// Procedural map generation tuned for readable topo: few large landforms,
+    /// coherent forest stands, ridge-biased rock. Fields are 180°-symmetrized so
+    /// neither player gets better ground. Deterministic for (width, height, seed).
     /// </summary>
     public static class MapGenerator
     {
@@ -47,17 +41,30 @@ namespace Tactix.Core
 
             var rng = new Random(seed);
 
-            var height01 = Normalize(Symmetrize(Field(width, height, rng, new[] { 3, 6, 12 }, new[] { 1.0, 0.5, 0.22 })));
+            // Low-frequency dominant relief → broad hills / plateaus, not noise soup.
+            var height01 = Normalize(Symmetrize(Field(width, height, rng,
+                new[] { 2, 4, 8 }, new[] { 1.0, 0.35, 0.12 })));
             TaperDeploymentEdges(height01, width, height);
             height01 = Normalize(height01);
+            // Soften midtones so quantized bands form wider plateaus.
+            WidenPlateaus(height01, width, height);
 
             var elevation = Quantize(height01, width, height);
             FlattenDeploymentZones(elevation, width, height);
             RepairReachability(elevation, width, height);
 
-            var forest = Normalize(Symmetrize(Field(width, height, rng, new[] { 4, 9 }, new[] { 1.0, 0.55 })));
-            var rock = Normalize(Symmetrize(Field(width, height, rng, new[] { 5, 11 }, new[] { 1.0, 0.5 })));
+            // Coarse cover fields → stands and ridge clusters after region bias.
+            var forest = Normalize(Symmetrize(Field(width, height, rng,
+                new[] { 2, 5 }, new[] { 1.0, 0.4 })));
+            var rock = Normalize(Symmetrize(Field(width, height, rng,
+                new[] { 3, 6 }, new[] { 1.0, 0.45 })));
+            BiasForestTowardMidElev(forest, elevation, width, height);
+            BiasRockTowardRidges(rock, elevation, width, height);
+            forest = Normalize(forest);
+            rock = Normalize(rock);
+
             var terrain = PaintTerrain(elevation, forest, rock, width, height);
+            GrowForestStands(terrain, forest, elevation, width, height);
             ClearRockBlockages(terrain, elevation, width, height);
 
             var state = new GameState
@@ -159,6 +166,18 @@ namespace Tactix.Core
             }
         }
 
+        /// <summary>Compress mid values so quantization yields broader plateaus.</summary>
+        private static void WidenPlateaus(double[,] field, int width, int height)
+        {
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                {
+                    double v = field[x, y];
+                    // Smoothstep-ish stretch: push toward band centres.
+                    field[x, y] = Smoothstep(v);
+                }
+        }
+
         private static int[,] Quantize(double[,] field, int width, int height)
         {
             var values = new List<double>(width * height);
@@ -166,9 +185,10 @@ namespace Tactix.Core
                 for (int x = 0; x < width; x++) values.Add(field[x, y]);
             values.Sort();
 
-            double t1 = values[(int)(values.Count * 0.44)];
-            double t2 = values[(int)(values.Count * 0.74)];
-            double t3 = values[(int)(values.Count * 0.92)];
+            // Slightly wider low/mid bands for readable contour rings.
+            double t1 = values[(int)(values.Count * 0.40)];
+            double t2 = values[(int)(values.Count * 0.70)];
+            double t3 = values[(int)(values.Count * 0.90)];
 
             var elevation = new int[width, height];
             for (int y = 0; y < height; y++)
@@ -224,6 +244,37 @@ namespace Tactix.Core
 
         // ---------- terrain ----------
 
+        private static void BiasForestTowardMidElev(double[,] forest, int[,] elevation, int width, int height)
+        {
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                {
+                    int e = elevation[x, y];
+                    double bias = e == 1 ? 1.15 : e == 2 ? 1.05 : e == 0 ? 0.75 : 0.55;
+                    forest[x, y] *= bias;
+                }
+        }
+
+        private static void BiasRockTowardRidges(double[,] rock, int[,] elevation, int width, int height)
+        {
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                {
+                    int e = elevation[x, y];
+                    double localMax = 0;
+                    for (int dx = -1; dx <= 1; dx++)
+                        for (int dy = -1; dy <= 1; dy++)
+                        {
+                            int nx = x + dx, ny = y + dy;
+                            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                            localMax = Math.Max(localMax, elevation[nx, ny]);
+                        }
+                    bool ridge = e >= 2 && e >= localMax - 0.01;
+                    double bias = ridge ? 1.35 : e >= 2 ? 0.9 : 0.35;
+                    rock[x, y] *= bias;
+                }
+        }
+
         private static TerrainType[][] PaintTerrain(int[,] elevation, double[,] forest, double[,] rock, int width, int height)
         {
             var terrain = new TerrainType[height][];
@@ -233,8 +284,9 @@ namespace Tactix.Core
                 for (int x = 0; x < width; x++)
                 {
                     var type = TerrainType.Open;
-                    if (forest[x, y] > 0.60 && elevation[x, y] <= 2) type = TerrainType.Forest;
-                    if (rock[x, y] > 0.86 && elevation[x, y] >= 2) type = TerrainType.Impassable;
+                    // Higher thresholds + biases → fewer, denser stands/clusters.
+                    if (forest[x, y] > 0.62 && elevation[x, y] <= 2) type = TerrainType.Forest;
+                    if (rock[x, y] > 0.84 && elevation[x, y] >= 2) type = TerrainType.Impassable;
                     terrain[y][x] = type;
                 }
             }
@@ -245,6 +297,36 @@ namespace Tactix.Core
                     terrain[height - 1 - y][x] = TerrainType.Open;
                 }
             return terrain;
+        }
+
+        /// <summary>
+        /// One pass of morphological close: fill forest holes when enough forest
+        /// neighbours exist, so stands read as regions rather than speckles.
+        /// </summary>
+        private static void GrowForestStands(TerrainType[][] terrain, double[,] forest, int[,] elevation, int width, int height)
+        {
+            var add = new List<(int x, int y)>();
+            for (int y = DeploymentDepth; y < height - DeploymentDepth; y++)
+                for (int x = 0; x < width; x++)
+                {
+                    if (terrain[y][x] != TerrainType.Open) continue;
+                    if (elevation[x, y] > 2 || forest[x, y] < 0.48) continue;
+                    int n = 0;
+                    for (int dx = -1; dx <= 1; dx++)
+                        for (int dy = -1; dy <= 1; dy++)
+                        {
+                            if (dx == 0 && dy == 0) continue;
+                            int nx = x + dx, ny = y + dy;
+                            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                            if (terrain[ny][nx] == TerrainType.Forest) n++;
+                        }
+                    if (n >= 4) add.Add((x, y));
+                }
+            foreach (var (x, y) in add)
+            {
+                terrain[y][x] = TerrainType.Forest;
+                terrain[height - 1 - y][width - 1 - x] = TerrainType.Forest;
+            }
         }
 
         /// <summary>Opens any rock formation that would seal off part of the map.</summary>

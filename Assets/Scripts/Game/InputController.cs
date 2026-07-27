@@ -406,7 +406,8 @@ namespace Tactix.Game
             });
             bool canSplit = !IsMultiSelect && _game.CanAcceptInput;
 
-            _game.Ui.ShowUnitContextMenu(screenPos, primary, canOrder: true, canSplit,
+            // Orders live on the Command Dock only — no floating menu over the map.
+            _game.Ui.UpdateDockOrderTools(primary, canOrder: true, canSplit,
                 selectionCount: _selectedIds.Count, anyAttack: anyAttack, anySupport: anySupport);
         }
 

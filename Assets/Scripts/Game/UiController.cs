@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text;
 using Tactix.Core;
 using UnityEngine;
@@ -30,14 +31,30 @@ namespace Tactix.Game
         private Text _manualBody;
         private Text _manualKey;
         private GameObject _workshopPanel;
+        private GameObject _workshopSection;
+        private GameObject _commandSection;
         private Text _workshopSeed;
         private Text _workshopMode;
+        private Text _dockStatus;
+        private Text _dockTelemetry;
+        private GameObject _dockEndTurn;
+        private Image _cameoIcon;
+        private Image _cameoHpFill;
+        private Text _cameoName;
+        private readonly Dictionary<InputController.OrderTool, Image> _orderToolImages =
+            new Dictionary<InputController.OrderTool, Image>();
+        private readonly Dictionary<InputController.OrderTool, Button> _orderToolButtons =
+            new Dictionary<InputController.OrderTool, Button>();
+        private Button _dockSplitButton;
+        private Button _dockClearButton;
+        private Image _dockSplitImage;
+        private Image _dockClearImage;
+        private GameObject _mapBezel;
         private GameObject _orderStrip;
         private Text _orderSummary;
         private Text _orderHint;
         private readonly GameObject[] _slotButtons = new GameObject[OrderBook.MaxDepth];
         private readonly GameObject[] _slotRemoveButtons = new GameObject[OrderBook.MaxDepth];
-        private GameObject _contextMenu;
 
         public bool LegendOpen => _legendPanel != null && _legendPanel.activeSelf;
 
@@ -51,34 +68,46 @@ namespace Tactix.Game
 
         public void ShowModeSelect()
         {
-            _modePanel.SetActive(true);
-            _winPanel.SetActive(false);
-            _legendPanel.SetActive(false);
-            _endTurnButton.SetActive(false);
-            _legendButton.SetActive(false);
-            HideMapWorkshop();
-            HideTelemetry();
-            HideOrderStrip();
-            HideContextMenu();
-            _banner.text = "";
-        }
-
-        public void HidePanels()
-        {
+            // Shell replaces the old full-screen mode wall — reopen workshop dock.
             _modePanel.SetActive(false);
             _winPanel.SetActive(false);
             _legendPanel.SetActive(false);
-            _endTurnButton.SetActive(true);
+            _endTurnButton.SetActive(false);
             _legendButton.SetActive(true);
             HideTelemetry();
             HideOrderStrip();
             HideContextMenu();
+            _banner.text = "";
+            if (_game != null && !_game.InMapWorkshop)
+                _game.OpenMapWorkshop(GameMode.Hotseat);
+        }
+
+        public void HidePanels()
+        {
+            ShowCommandDock();
+        }
+
+        /// <summary>In-match C&amp;C dock: status, telemetry, orders, End Turn.</summary>
+        public void ShowCommandDock()
+        {
+            _modePanel.SetActive(false);
+            _winPanel.SetActive(false);
+            _legendPanel.SetActive(false);
+            _workshopPanel.SetActive(true);
+            if (_workshopSection != null) _workshopSection.SetActive(false);
+            if (_commandSection != null) _commandSection.SetActive(true);
+            _endTurnButton.SetActive(false);
+            _legendButton.SetActive(true);
+            if (_dockEndTurn != null) _dockEndTurn.SetActive(true);
+            HideContextMenu();
+            _banner.text = "";
         }
 
         public void ShowWinScreen(GameState state)
         {
             _winPanel.SetActive(true);
             _endTurnButton.SetActive(false);
+            if (_dockEndTurn != null) _dockEndTurn.SetActive(false);
             HideTelemetry();
             HideOrderStrip();
             HideContextMenu();
@@ -157,13 +186,16 @@ namespace Tactix.Game
             _winPanel.SetActive(false);
             _legendPanel.SetActive(false);
             _endTurnButton.SetActive(false);
-            _legendButton.SetActive(false);
+            _legendButton.SetActive(true);
             HideTelemetry();
             HideOrderStrip();
             HideContextMenu();
             if (_manualPanel != null) _manualPanel.SetActive(false);
 
             _workshopPanel.SetActive(true);
+            if (_workshopSection != null) _workshopSection.SetActive(true);
+            if (_commandSection != null) _commandSection.SetActive(false);
+
             string source = spec.IsStandard
                 ? "Standard map (24×24)"
                 : $"Generated {spec.Width}×{spec.Height}";
@@ -172,12 +204,12 @@ namespace Tactix.Game
                 : spec.Seed.Value.ToString();
             _workshopSeed.text = $"{source}\nSeed: {seed}";
             _workshopMode.text = ModeLabel(mode);
-            _banner.text = "Preview — Reroll or Start Match";
+            _banner.text = "";
         }
 
         public void HideMapWorkshop()
         {
-            if (_workshopPanel != null) _workshopPanel.SetActive(false);
+            if (_workshopSection != null) _workshopSection.SetActive(false);
         }
 
         private static string ModeLabel(GameMode mode)
@@ -225,9 +257,19 @@ namespace Tactix.Game
                 ? "  •  empty queues act on their own"
                 : "";
             _banner.text =
-                $"Turn {state.TurnNumber}{limit}  •  Player {state.CurrentPlayer + 1} ({PlayerName(state.CurrentPlayer)})  •  {phase}{clock}{autonomy}{actor}\n" +
-                $"<size=17>Score  Blue {state.Score[0]} – {state.Score[1]} Red</size>";
-            _endTurnButton.GetComponent<Button>().interactable = isHumanTurn;
+                $"Turn {state.TurnNumber}{limit}  •  {PlayerName(state.CurrentPlayer)}  •  {phase}{clock}{actor}";
+            if (_dockStatus != null)
+            {
+                _dockStatus.color = VisualAssets.HudAccentGreen;
+                _dockStatus.text =
+                    $"TURN {state.TurnNumber}{limit}\n" +
+                    $"{PlayerName(state.CurrentPlayer).ToUpperInvariant()}  ·  {phase.ToUpperInvariant()}{clock}\n" +
+                    $"SCORE  {state.Score[0]} – {state.Score[1]}{autonomy}{actor}";
+            }
+            if (_dockEndTurn != null)
+                _dockEndTurn.GetComponent<Button>().interactable = isHumanTurn;
+            if (_endTurnButton != null)
+                _endTurnButton.GetComponent<Button>().interactable = isHumanTurn;
         }
 
         public void ShowOrderStrip(int unitId, GameState state, OrderBook book, InputController.OrderTool tool,
@@ -242,15 +284,31 @@ namespace Tactix.Game
             }
 
             _orderStrip.SetActive(true);
+            // Queue strip lives under the order grid inside the command dock.
+            if (_commandSection != null && _commandSection.activeSelf
+                && _orderStrip.transform.parent != _commandSection.transform)
+            {
+                _orderStrip.transform.SetParent(_commandSection.transform, false);
+                var r = _orderStrip.GetComponent<RectTransform>();
+                r.anchorMin = new Vector2(0f, 1f);
+                r.anchorMax = new Vector2(1f, 1f);
+                r.pivot = new Vector2(0.5f, 1f);
+                r.anchoredPosition = new Vector2(0, -356);
+                r.sizeDelta = new Vector2(-24, 96);
+                var bg = _orderStrip.GetComponent<Image>();
+                if (bg != null) bg.color = VisualAssets.HudPanelInner;
+            }
+
             var sb = new StringBuilder();
-            sb.Append($"Orders · {VisualAssets.UnitDisplayName(unit.Type, unit.Echelon)}");
+            sb.Append($"QUEUE · {VisualAssets.UnitDisplayName(unit.Type, unit.Echelon).ToUpperInvariant()}");
             if (selectionCount > 1) sb.Append($"  ×{selectionCount}");
             if (tool != InputController.OrderTool.Auto) sb.Append($"  [{tool}]");
 
             var queue = book.PeekAll(unitId);
             if (queue.Count == 0)
-                sb.Append("\n<size=13><color=#aaa>No orders — unit acts on its own</color></size>");
+                sb.Append("\n<size=12><color=#8a8e72>Empty — unit acts on its own</color></size>");
             _orderSummary.text = sb.ToString();
+            _orderSummary.color = VisualAssets.HudAccent;
 
             for (int i = 0; i < OrderBook.MaxDepth; i++)
             {
@@ -267,14 +325,23 @@ namespace Tactix.Game
                     {
                         bool focused = i == focusedSlot;
                         img.color = focused
-                            ? new Color(0.45f, 0.38f, 0.15f, 0.95f)
+                            ? VisualAssets.HudButtonHot
                             : occupied
-                                ? new Color(0.18f, 0.22f, 0.28f, 0.92f)
-                                : new Color(0.12f, 0.13f, 0.16f, 0.75f);
+                                ? VisualAssets.HudPanelInner
+                                : VisualAssets.HudButton;
                     }
                 }
                 if (_slotRemoveButtons[i] != null)
                     _slotRemoveButtons[i].SetActive(occupied);
+            }
+
+            // Highlight active order tool on the C&C dock grid (skip disabled).
+            foreach (var kv in _orderToolImages)
+            {
+                if (kv.Value == null) continue;
+                bool enabled = _orderToolButtons.TryGetValue(kv.Key, out var btn) && btn != null && btn.interactable;
+                if (!enabled) continue;
+                kv.Value.color = kv.Key == tool ? VisualAssets.HudButtonHot : VisualAssets.HudButton;
             }
         }
 
@@ -304,39 +371,35 @@ namespace Tactix.Game
         public void ShowTelemetry(Unit unit, GameState state, bool splitMode = false, bool inspectOnly = false)
         {
             var s = unit.Stats;
+            UpdateCameo(unit);
+
             var sb = new StringBuilder();
             if (inspectOnly)
-                sb.AppendLine("<color=#aaa>Inspect only — cannot issue orders</color>");
-            if (splitMode) sb.AppendLine("[ DETACHING — click where the new unit forms up ]");
-            sb.AppendLine($"{VisualAssets.UnitDisplayName(unit.Type, unit.Echelon)}");
-            sb.AppendLine($"Player {unit.Owner + 1} ({PlayerName(unit.Owner)})");
-            sb.AppendLine($"Health {unit.Hp}/{s.MaxHp}    XP {unit.Xp}");
-            sb.AppendLine($"Position ({unit.X:0.0}, {unit.Y:0.0})    Elevation {state.ElevationAtPoint(unit.X, unit.Y)}");
-            sb.AppendLine(s.CanAttack
-                ? $"Damage {DamageText(s)}    Range {s.AttackRange:0.##}{(s.RequiresLineOfSight ? " (LOS)" : "")}"
-                : "Unarmed");
-            if (s.CanSupport)
-            {
-                string treats = s.Supports == SupportTarget.Vehicles ? "vehicles" : "dismounted";
-                sb.AppendLine($"Restores +{s.SupportPower} HP    Range {s.SupportRange:0.##}  ({treats})");
-            }
-            sb.AppendLine($"Move {s.MoveRange:0.##}    Sight {s.Sight:0.##}");
+                sb.AppendLine("<color=#888>Inspect only</color>");
+            if (splitMode) sb.AppendLine("[ DETACH ]");
+            sb.AppendLine($"HP {unit.Hp}/{s.MaxHp}   XP {unit.Xp}");
+            sb.Append($"({unit.X:0.0},{unit.Y:0.0})  elev {state.ElevationAtPoint(unit.X, unit.Y)}");
+            ApplyTelemetryText(sb.ToString());
+        }
 
-            var notes = new StringBuilder();
-            if (state.TerrainAtPoint(unit.X, unit.Y) == TerrainType.Forest) notes.Append("In forest: +1 defense.  ");
-            if (state.ElevationAtPoint(unit.X, unit.Y) > 0) notes.Append("High ground: +1 damage vs lower targets.  ");
-            if (unit.Owner == state.CurrentPlayer)
+        private void UpdateCameo(Unit unit)
+        {
+            if (_cameoName != null)
+                _cameoName.text = VisualAssets.UnitDisplayName(unit.Type, unit.Echelon).ToUpperInvariant();
+            if (_cameoIcon != null)
             {
-                notes.Append($"Moved: {(unit.HasMoved ? "yes" : "no")}   ");
-                notes.Append(s.CanSupport
-                    ? $"Supported: {(unit.HasSupported ? "yes" : "no")}"
-                    : $"Attacked: {(unit.HasAttacked ? "yes" : "no")}");
+                _cameoIcon.sprite = VisualAssets.UnitSymbol(unit.Type, unit.Owner, unit.Echelon);
+                _cameoIcon.color = Color.white;
             }
-            sb.Append(notes.Length > 0 ? notes.ToString() : "—");
-
-            _telemetryText.supportRichText = true;
-            _telemetryText.text = sb.ToString();
-            _telemetryPanel.SetActive(true);
+            if (_cameoHpFill != null)
+            {
+                float pct = unit.Stats.MaxHp <= 0 ? 0f : (float)unit.Hp / unit.Stats.MaxHp;
+                var r = _cameoHpFill.rectTransform;
+                r.anchorMin = Vector2.zero;
+                r.anchorMax = new Vector2(Mathf.Clamp01(pct), 1f);
+                r.offsetMin = Vector2.zero;
+                r.offsetMax = Vector2.zero;
+            }
         }
 
         public void ShowTelemetryGroup(System.Collections.Generic.IEnumerable<Unit> units, GameState state)
@@ -371,51 +434,77 @@ namespace Tactix.Game
                 sb.AppendLine($"• {VisualAssets.UnitDisplayName(u.Type, u.Echelon)}  HP {u.Hp}/{u.Stats.MaxHp}");
             }
             sb.Append($"Total HP {hp}/{maxHp}");
-            _telemetryText.supportRichText = true;
-            _telemetryText.text = sb.ToString();
-            _telemetryPanel.SetActive(true);
+            UpdateCameo(list[0]);
+            if (_cameoName != null)
+                _cameoName.text = $"{list.Count} UNITS SELECTED";
+            ApplyTelemetryText(sb.ToString());
         }
 
+        private void ApplyTelemetryText(string body)
+        {
+            if (_telemetryText != null)
+            {
+                _telemetryText.supportRichText = true;
+                _telemetryText.text = body;
+            }
+            if (_dockTelemetry != null)
+            {
+                _dockTelemetry.supportRichText = true;
+                _dockTelemetry.text = body;
+            }
+            bool useDock = _commandSection != null && _commandSection.activeSelf;
+            if (_telemetryPanel != null) _telemetryPanel.SetActive(!useDock);
+        }
+
+        /// <summary>No floating menu — dock owns orders. Clears tool enablement when nothing is selected.</summary>
         public void HideContextMenu()
         {
-            if (_contextMenu != null) _contextMenu.SetActive(false);
+            UpdateDockOrderTools(null, canOrder: false, canSplit: false);
         }
 
-        public void ShowUnitContextMenu(Vector2 screenPos, Unit unit, bool canOrder, bool canSplit,
+        /// <summary>
+        /// Enable/grey dock order buttons for the selection. Actions live only on the side panel.
+        /// </summary>
+        public void UpdateDockOrderTools(Unit unit, bool canOrder, bool canSplit,
             int selectionCount = 1, bool anyAttack = false, bool anySupport = false)
         {
-            if (_contextMenu == null || unit == null) return;
-            _contextMenu.SetActive(true);
+            bool attack = unit != null && (selectionCount > 1 ? anyAttack : unit.Stats.CanAttack);
+            bool support = unit != null && (selectionCount > 1 ? anySupport : unit.Stats.CanSupport);
+            bool splitOk = canOrder && canSplit && selectionCount <= 1;
 
-            var rect = _contextMenu.GetComponent<RectTransform>();
-            float w = rect.sizeDelta.x;
-            float h = rect.sizeDelta.y;
-            rect.position = new Vector3(
-                Mathf.Clamp(screenPos.x + 8f, w * 0.5f + 4f, Screen.width - w * 0.5f - 4f),
-                Mathf.Clamp(screenPos.y + 8f, h * 0.5f + 4f, Screen.height - h * 0.5f - 4f),
-                0f);
-
-            bool attack = selectionCount > 1 ? anyAttack : unit.Stats.CanAttack;
-            bool support = selectionCount > 1 ? anySupport : unit.Stats.CanSupport;
-            SetMenuButtonActive("Move", canOrder);
-            SetMenuButtonActive("Engage", canOrder && attack);
-            SetMenuButtonActive("Support", canOrder && support);
-            SetMenuButtonActive("Garrison", canOrder);
-            SetMenuButtonActive("Split", canOrder && canSplit && selectionCount <= 1);
-            SetMenuButtonActive("ClearQueue", canOrder);
-            SetMenuButtonActive("Deselect", true);
+            SetDockTool(InputController.OrderTool.Move, canOrder);
+            SetDockTool(InputController.OrderTool.Engage, canOrder && attack);
+            SetDockTool(InputController.OrderTool.Support, canOrder && support);
+            SetDockTool(InputController.OrderTool.Hold, canOrder);
+            SetDockButton(_dockSplitButton, _dockSplitImage, splitOk);
+            SetDockButton(_dockClearButton, _dockClearImage, canOrder);
         }
 
-        private void SetMenuButtonActive(string name, bool active)
+        private void SetDockTool(InputController.OrderTool tool, bool enabled)
         {
-            if (_contextMenu == null) return;
-            var t = _contextMenu.transform.Find(name);
-            if (t != null) t.gameObject.SetActive(active);
+            _orderToolButtons.TryGetValue(tool, out var btn);
+            _orderToolImages.TryGetValue(tool, out var img);
+            SetDockButton(btn, img, enabled);
+        }
+
+        private static void SetDockButton(Button btn, Image img, bool enabled)
+        {
+            if (btn != null) btn.interactable = enabled;
+            if (img != null)
+                img.color = enabled ? VisualAssets.HudButton : VisualAssets.HudDisabled;
         }
 
         public void HideTelemetry()
         {
             if (_telemetryPanel != null) _telemetryPanel.SetActive(false);
+            if (_dockTelemetry != null) _dockTelemetry.text = "";
+            if (_cameoName != null) _cameoName.text = "NO UNIT SELECTED";
+            if (_cameoIcon != null) { _cameoIcon.sprite = null; _cameoIcon.color = VisualAssets.HudMuted; }
+            if (_cameoHpFill != null)
+            {
+                var r = _cameoHpFill.rectTransform;
+                r.anchorMax = new Vector2(0f, 1f);
+            }
         }
 
         private static string PlayerName(int player) => player == 0 ? "Blue" : "Red";
@@ -438,21 +527,24 @@ namespace Tactix.Game
             eventSystemGo.AddComponent<EventSystem>();
             eventSystemGo.AddComponent<StandaloneInputModule>();
 
-            _banner = MakeText(canvasGo.transform, "Banner", "", 22, TextAnchor.UpperCenter);
+            _banner = MakeText(canvasGo.transform, "Banner", "", 16, TextAnchor.UpperLeft);
             _banner.supportRichText = true;
-            Anchor(_banner.rectTransform, new Vector2(0.5f, 1f), new Vector2(0, -12), new Vector2(1000, 56));
+            _banner.color = VisualAssets.HudAccent;
+            Anchor(_banner.rectTransform, new Vector2(0f, 1f), new Vector2(24, -14), new Vector2(760, 36));
 
-            _endTurnButton = MakeButton(canvasGo.transform, "End Turn", () => _game.SubmitEndTurn(),
-                new Color(0.25f, 0.35f, 0.5f));
+            BuildMapBezel(canvasGo.transform);
+
+            _endTurnButton = MakeHudButton(canvasGo.transform, "End Turn", () => _game.SubmitEndTurn(),
+                VisualAssets.HudButtonPrimary);
             Anchor(_endTurnButton.GetComponent<RectTransform>(), new Vector2(1f, 0f), new Vector2(-110, 45), new Vector2(180, 55));
 
-            _legendButton = MakeButton(canvasGo.transform, "Legend (L)", ToggleLegend,
-                new Color(0.32f, 0.32f, 0.38f));
-            Anchor(_legendButton.GetComponent<RectTransform>(), new Vector2(1f, 1f), new Vector2(-85, -30), new Vector2(140, 42));
+            _legendButton = MakeHudButton(canvasGo.transform, "Legend (L)", ToggleLegend, VisualAssets.HudButton);
+            Anchor(_legendButton.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(90, -52), new Vector2(140, 32));
+            var legendLabel = _legendButton.GetComponentInChildren<Text>();
+            if (legendLabel != null) legendLabel.fontSize = 14;
 
             BuildTelemetryPanel(canvasGo.transform);
             BuildOrderStrip(canvasGo.transform);
-            BuildContextMenu(canvasGo.transform);
             BuildModePanel(canvasGo.transform);
             BuildWinPanel(canvasGo.transform);
             BuildLegendPanel(canvasGo.transform);
@@ -466,115 +558,63 @@ namespace Tactix.Game
             _workshopPanel.SetActive(false);
             _telemetryPanel.SetActive(false);
             _orderStrip.SetActive(false);
-            _contextMenu.SetActive(false);
             _endTurnButton.SetActive(false);
             _legendButton.SetActive(false);
+            UpdateDockOrderTools(null, canOrder: false, canSplit: false);
         }
 
         private void BuildOrderStrip(Transform canvas)
         {
+            // Slim three-slot queue; dock owns Move/Engage/etc. buttons.
             _orderStrip = MakePanel(canvas, "OrderStrip");
             var rect = _orderStrip.GetComponent<RectTransform>();
             rect.anchorMin = new Vector2(0f, 0f);
             rect.anchorMax = new Vector2(0f, 0f);
             rect.pivot = new Vector2(0f, 0f);
             rect.anchoredPosition = new Vector2(12, 12);
-            rect.sizeDelta = new Vector2(520, 148);
+            rect.sizeDelta = new Vector2(400, 96);
 
             var bg = _orderStrip.GetComponent<Image>();
-            bg.color = new Color(0.08f, 0.09f, 0.12f, 0.88f);
+            bg.color = VisualAssets.HudPanelInner;
 
-            _orderSummary = MakeText(_orderStrip.transform, "Summary", "", 15, TextAnchor.UpperLeft);
+            _orderSummary = MakeText(_orderStrip.transform, "Summary", "", 13, TextAnchor.UpperLeft);
             _orderSummary.supportRichText = true;
-            Anchor(_orderSummary.rectTransform, new Vector2(0f, 1f), new Vector2(12, -8), new Vector2(496, 22));
+            _orderSummary.color = VisualAssets.HudAccent;
+            Anchor(_orderSummary.rectTransform, new Vector2(0f, 1f), new Vector2(10, -6), new Vector2(380, 20));
 
             for (int i = 0; i < OrderBook.MaxDepth; i++)
             {
                 int slot = i;
                 var slotGo = MakeButton(_orderStrip.transform, $"{i + 1}. (empty)",
                     () => FindInput()?.SetFocusedSlot(slot),
-                    new Color(0.12f, 0.13f, 0.16f, 0.75f));
+                    VisualAssets.HudButton);
                 slotGo.name = $"Slot{i}";
                 Anchor(slotGo.GetComponent<RectTransform>(), new Vector2(0f, 1f),
-                    new Vector2(12 + i * 170, -34), new Vector2(158, 28));
+                    new Vector2(10 + i * 128, -30), new Vector2(110, 26));
                 var slotText = slotGo.GetComponentInChildren<Text>();
-                if (slotText != null) slotText.fontSize = 13;
+                if (slotText != null)
+                {
+                    slotText.fontSize = 12;
+                    slotText.color = VisualAssets.HudBody;
+                }
                 _slotButtons[i] = slotGo;
 
                 var removeGo = MakeButton(_orderStrip.transform, "×",
                     () => FindInput()?.RemoveOrderAtSlot(slot),
-                    new Color(0.45f, 0.22f, 0.22f, 0.9f));
+                    VisualAssets.HudButtonDanger);
                 removeGo.name = $"SlotRemove{i}";
                 Anchor(removeGo.GetComponent<RectTransform>(), new Vector2(0f, 1f),
-                    new Vector2(158 + i * 170, -34), new Vector2(24, 28));
+                    new Vector2(112 + i * 128, -30), new Vector2(22, 26));
                 var removeText = removeGo.GetComponentInChildren<Text>();
-                if (removeText != null) removeText.fontSize = 18;
+                if (removeText != null) removeText.fontSize = 14;
                 _slotRemoveButtons[i] = removeGo;
             }
 
-            float x = 12f;
-            void Tool(string label, InputController.OrderTool tool, Color color)
-            {
-                var captured = tool;
-                var btn = MakeButton(_orderStrip.transform, label, () => FindInput()?.SetTool(captured), color);
-                Anchor(btn.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(x + 40, 38), new Vector2(80, 32));
-                x += 86f;
-            }
-
-            Tool("Move", InputController.OrderTool.Move, new Color(0.2f, 0.4f, 0.5f));
-            Tool("Engage", InputController.OrderTool.Engage, new Color(0.5f, 0.22f, 0.2f));
-            Tool("Garrison", InputController.OrderTool.Hold, new Color(0.35f, 0.35f, 0.28f));
-            Tool("Support", InputController.OrderTool.Support, new Color(0.2f, 0.45f, 0.28f));
-
-            var undo = MakeButton(_orderStrip.transform, "Undo", () => FindInput()?.UndoLastOrder(),
-                new Color(0.32f, 0.32f, 0.38f));
-            Anchor(undo.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(x + 36, 38), new Vector2(72, 32));
-            x += 80f;
-            var clear = MakeButton(_orderStrip.transform, "Clear", () => FindInput()?.ClearSelectedOrders(),
-                new Color(0.32f, 0.32f, 0.38f));
-            Anchor(clear.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(x + 36, 38), new Vector2(72, 32));
-
             _orderHint = MakeText(_orderStrip.transform, "Hint",
-                "Click slot to edit  •  Shift+click append  •  Z undo  •  Ctrl+click instant  •  RMB cancel",
-                12, TextAnchor.LowerLeft);
-            _orderHint.color = new Color(0.7f, 0.72f, 0.78f);
-            Anchor(_orderHint.rectTransform, new Vector2(0f, 0f), new Vector2(12, 4), new Vector2(496, 18));
-        }
-
-        private void BuildContextMenu(Transform canvas)
-        {
-            _contextMenu = new GameObject("ContextMenu");
-            _contextMenu.transform.SetParent(canvas, false);
-            var image = _contextMenu.AddComponent<Image>();
-            image.color = new Color(0.06f, 0.07f, 0.1f, 0.94f);
-            var rect = _contextMenu.GetComponent<RectTransform>();
-            rect.sizeDelta = new Vector2(140, 220);
-
-            float y = -8f;
-            void Item(string name, string label, System.Action action)
-            {
-                var btn = MakeButton(_contextMenu.transform, label, () =>
-                {
-                    action?.Invoke();
-                    HideContextMenu();
-                }, new Color(0.22f, 0.24f, 0.3f));
-                btn.name = name;
-                Anchor(btn.GetComponent<RectTransform>(), new Vector2(0.5f, 1f), new Vector2(0, y - 18), new Vector2(124, 30));
-                var t = btn.GetComponentInChildren<Text>();
-                if (t != null) t.fontSize = 15;
-                y -= 34f;
-            }
-
-            Item("Move", "Move", () => FindInput()?.SetTool(InputController.OrderTool.Move));
-            Item("Engage", "Engage", () => FindInput()?.SetTool(InputController.OrderTool.Engage));
-            Item("Support", "Support", () => FindInput()?.SetTool(InputController.OrderTool.Support));
-            Item("Garrison", "Garrison", () => FindInput()?.SetTool(InputController.OrderTool.Hold));
-            Item("Split", "Split", () => FindInput()?.ToggleSplitMode());
-            Item("ClearQueue", "Clear Queue", () => FindInput()?.ClearSelectedOrders());
-            Item("Deselect", "Deselect", () => FindInput()?.ClearSelection());
-
-            rect.sizeDelta = new Vector2(140, -y + 8f);
-            _contextMenu.SetActive(false);
+                "Slot = edit  ·  Shift+click append  ·  Z undo  ·  RMB cancel",
+                11, TextAnchor.LowerLeft);
+            _orderHint.color = VisualAssets.HudMuted;
+            Anchor(_orderHint.rectTransform, new Vector2(0f, 0f), new Vector2(10, 6), new Vector2(380, 16));
         }
 
         private InputController FindInput() =>
@@ -585,7 +625,8 @@ namespace Tactix.Game
             _telemetryPanel = new GameObject("TelemetryPanel");
             _telemetryPanel.transform.SetParent(canvas, false);
             var image = _telemetryPanel.AddComponent<Image>();
-            image.color = new Color(0.05f, 0.05f, 0.07f, 0.82f);
+            image.color = VisualAssets.HudMenuPanel;
+            AddBevel(_telemetryPanel.transform);
             var rect = _telemetryPanel.GetComponent<RectTransform>();
             rect.anchorMin = new Vector2(0f, 0f);
             rect.anchorMax = new Vector2(0f, 0f);
@@ -643,20 +684,24 @@ namespace Tactix.Game
         private void BuildWinPanel(Transform canvas)
         {
             _winPanel = MakePanel(canvas, "WinPanel");
-            _winText = MakeText(_winPanel.transform, "WinText", "", 40, TextAnchor.MiddleCenter);
+            AddBevel(_winPanel.transform);
+            _winText = MakeText(_winPanel.transform, "WinText", "", 36, TextAnchor.MiddleCenter);
             _winText.supportRichText = true;
+            _winText.color = VisualAssets.HudAccent;
             Anchor(_winText.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, 90), new Vector2(800, 60));
-            var newGame = MakeButton(_winPanel.transform, "New Game", () => _game.BackToMenu(),
-                new Color(0.22f, 0.42f, 0.32f));
+            var newGame = MakeHudButton(_winPanel.transform, "NEW GAME", () => _game.BackToMenu(),
+                VisualAssets.HudButtonPrimary);
             Anchor(newGame.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -10), new Vector2(260, 58));
-            var quit = MakeButton(_winPanel.transform, "Quit", () => _game.QuitGame(), new Color(0.5f, 0.24f, 0.22f));
+            var quit = MakeHudButton(_winPanel.transform, "ABORT", () => _game.QuitGame(), VisualAssets.HudButtonDanger);
             Anchor(quit.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -82), new Vector2(260, 58));
         }
 
         private void BuildLegendPanel(Transform canvas)
         {
             _legendPanel = MakePanel(canvas, "LegendPanel");
-            var title = MakeText(_legendPanel.transform, "Title", "UNIT LEGEND", 30, TextAnchor.MiddleCenter);
+            AddBevel(_legendPanel.transform);
+            var title = MakeText(_legendPanel.transform, "Title", "UNIT LEGEND", 28, TextAnchor.MiddleCenter);
+            title.color = VisualAssets.HudAccent;
             Anchor(title.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, 300), new Vector2(600, 44));
 
             for (int i = 0; i < UnitStats.AllTypes.Length; i++)
@@ -721,7 +766,7 @@ namespace Tactix.Game
                 15, TextAnchor.MiddleCenter);
             Anchor(note.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, -258), new Vector2(960, 86));
 
-            var close = MakeButton(_legendPanel.transform, "Close", CloseLegend, new Color(0.32f, 0.32f, 0.38f));
+            var close = MakeHudButton(_legendPanel.transform, "CLOSE", CloseLegend, VisualAssets.HudButton);
             Anchor(close.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -322), new Vector2(200, 42));
         }
 
@@ -741,107 +786,315 @@ namespace Tactix.Game
 
             var card = new GameObject("Card");
             card.transform.SetParent(_manualPanel.transform, false);
-            card.AddComponent<Image>().color = new Color(0.05f, 0.05f, 0.07f, 0.93f);
+            card.AddComponent<Image>().color = VisualAssets.HudPanel;
             Anchor(card.GetComponent<RectTransform>(), new Vector2(1f, 0.5f), new Vector2(-16, 0), new Vector2(420, 640));
+            AddBevel(card.transform);
 
-            var header = MakeText(card.transform, "Header", "FIELD MANUAL", 16, TextAnchor.UpperLeft);
-            header.color = new Color(0.65f, 0.72f, 0.85f);
+            var header = MakeText(card.transform, "Header", "FIELD MANUAL", 14, TextAnchor.UpperLeft);
+            header.color = VisualAssets.HudAccent;
             Anchor(header.rectTransform, new Vector2(0f, 1f), new Vector2(22, -18), new Vector2(380, 22));
 
-            _manualTitle = MakeText(card.transform, "Title", "", 24, TextAnchor.UpperLeft);
+            _manualTitle = MakeText(card.transform, "Title", "", 22, TextAnchor.UpperLeft);
+            _manualTitle.color = VisualAssets.HudBody;
             Anchor(_manualTitle.rectTransform, new Vector2(0f, 1f), new Vector2(22, -44), new Vector2(380, 34));
 
-            _manualStats = MakeText(card.transform, "Stats", "", 16, TextAnchor.UpperLeft);
-            _manualStats.color = new Color(0.85f, 0.90f, 1f);
+            _manualStats = MakeText(card.transform, "Stats", "", 15, TextAnchor.UpperLeft);
+            _manualStats.color = VisualAssets.HudAccentGreen;
             Anchor(_manualStats.rectTransform, new Vector2(0f, 1f), new Vector2(22, -86), new Vector2(380, 90));
 
-            _manualBody = MakeText(card.transform, "Body", "", 16, TextAnchor.UpperLeft);
+            _manualBody = MakeText(card.transform, "Body", "", 15, TextAnchor.UpperLeft);
+            _manualBody.color = VisualAssets.HudBody;
             _manualBody.horizontalOverflow = HorizontalWrapMode.Wrap;
             Anchor(_manualBody.rectTransform, new Vector2(0f, 1f), new Vector2(22, -186), new Vector2(376, 330));
 
-            var prev = MakeButton(card.transform, "< Prev", () => _game.CycleFieldManual(-1), new Color(0.30f, 0.30f, 0.46f));
+            var prev = MakeHudButton(card.transform, "< PREV", () => _game.CycleFieldManual(-1), VisualAssets.HudButton);
             Anchor(prev.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(22, 74), new Vector2(120, 44));
 
-            var next = MakeButton(card.transform, "Next >", () => _game.CycleFieldManual(1), new Color(0.30f, 0.30f, 0.46f));
+            var next = MakeHudButton(card.transform, "NEXT >", () => _game.CycleFieldManual(1), VisualAssets.HudButton);
             Anchor(next.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(150, 74), new Vector2(120, 44));
 
-            var back = MakeButton(card.transform, "Back", () => _game.CloseFieldManual(), new Color(0.32f, 0.32f, 0.38f));
+            var back = MakeHudButton(card.transform, "BACK", () => _game.CloseFieldManual(), VisualAssets.HudButton);
             Anchor(back.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(278, 74), new Vector2(120, 44));
 
-            var hint = MakeText(card.transform, "Hint", "← → branch   •   ↑ ↓ formation size   •   Esc to go back", 14, TextAnchor.UpperLeft);
-            hint.color = new Color(0.7f, 0.7f, 0.75f);
+            var hint = MakeText(card.transform, "Hint", "← → branch   ·   ↑ ↓ formation size   ·   Esc back", 13, TextAnchor.UpperLeft);
+            hint.color = VisualAssets.HudMuted;
             Anchor(hint.rectTransform, new Vector2(0f, 0f), new Vector2(22, 44), new Vector2(380, 22));
 
-            _manualKey = MakeText(_manualPanel.transform, "OverlayKey", "", 15, TextAnchor.LowerCenter);
+            _manualKey = MakeText(_manualPanel.transform, "OverlayKey", "", 14, TextAnchor.LowerCenter);
+            _manualKey.color = VisualAssets.HudBody;
             _manualKey.horizontalOverflow = HorizontalWrapMode.Wrap;
             Anchor(_manualKey.rectTransform, new Vector2(0.5f, 0f), new Vector2(-120, 16), new Vector2(880, 60));
         }
 
         /// <summary>
-        /// Side panel for the Map Workshop. Preview board renders in the world;
-        /// this card holds size / reroll / start controls.
+        /// Persistent right Command Dock — C&amp;C industrial sidebar.
+        /// Workshop section pre-match; command section in-match.
         /// </summary>
         private void BuildWorkshopPanel(Transform canvas)
         {
-            _workshopPanel = new GameObject("WorkshopPanel");
+            _workshopPanel = new GameObject("CommandDock");
             _workshopPanel.transform.SetParent(canvas, false);
-            var rect = _workshopPanel.AddComponent<RectTransform>();
-            rect.anchorMin = Vector2.zero;
-            rect.anchorMax = Vector2.one;
-            rect.offsetMin = Vector2.zero;
-            rect.offsetMax = Vector2.zero;
+            StretchFull(_workshopPanel.AddComponent<RectTransform>());
 
             var card = new GameObject("Card");
             card.transform.SetParent(_workshopPanel.transform, false);
-            card.AddComponent<Image>().color = new Color(0.05f, 0.05f, 0.07f, 0.93f);
-            Anchor(card.GetComponent<RectTransform>(), new Vector2(1f, 0.5f), new Vector2(-16, 0), new Vector2(420, 560));
+            card.AddComponent<Image>().color = VisualAssets.HudPanel;
+            var cardRect = card.GetComponent<RectTransform>();
+            cardRect.anchorMin = new Vector2(1f, 0f);
+            cardRect.anchorMax = new Vector2(1f, 1f);
+            cardRect.pivot = new Vector2(1f, 0.5f);
+            cardRect.anchoredPosition = new Vector2(-4, 0);
+            cardRect.sizeDelta = new Vector2(420, -8);
+            AddBevel(card.transform);
 
-            var header = MakeText(card.transform, "Header", "MAP WORKSHOP", 16, TextAnchor.UpperLeft);
-            header.color = new Color(0.65f, 0.72f, 0.85f);
-            Anchor(header.rectTransform, new Vector2(0f, 1f), new Vector2(22, -18), new Vector2(380, 22));
+            // ---- Workshop / briefing ----
+            _workshopSection = new GameObject("WorkshopSection");
+            _workshopSection.transform.SetParent(card.transform, false);
+            StretchFull(_workshopSection.AddComponent<RectTransform>());
 
-            _workshopMode = MakeText(card.transform, "Mode", "", 22, TextAnchor.UpperLeft);
-            Anchor(_workshopMode.rectTransform, new Vector2(0f, 1f), new Vector2(22, -48), new Vector2(380, 30));
+            var header = MakeText(_workshopSection.transform, "Header", "BRIEFING  ·  MAP SELECT", 14, TextAnchor.UpperLeft);
+            header.color = VisualAssets.HudAccent;
+            Anchor(header.rectTransform, new Vector2(0f, 1f), new Vector2(16, -14), new Vector2(380, 20));
 
-            _workshopSeed = MakeText(card.transform, "Seed", "", 16, TextAnchor.UpperLeft);
-            _workshopSeed.color = new Color(0.85f, 0.90f, 1f);
-            Anchor(_workshopSeed.rectTransform, new Vector2(0f, 1f), new Vector2(22, -90), new Vector2(380, 56));
+            var modeLabel = MakeText(_workshopSection.transform, "ModeLabel", "FORCE MODE", 12, TextAnchor.UpperLeft);
+            modeLabel.color = VisualAssets.HudMuted;
+            Anchor(modeLabel.rectTransform, new Vector2(0f, 1f), new Vector2(16, -42), new Vector2(380, 16));
 
-            var sizeLabel = MakeText(card.transform, "SizeLabel", "Board size", 15, TextAnchor.UpperLeft);
-            sizeLabel.color = new Color(0.7f, 0.7f, 0.75f);
-            Anchor(sizeLabel.rectTransform, new Vector2(0f, 1f), new Vector2(22, -156), new Vector2(380, 22));
+            string[] modeNames = { "Hotseat", "Vs Bot", "Bot vs Bot" };
+            GameMode[] modes = { GameMode.Hotseat, GameMode.VsBot, GameMode.BotVsBot };
+            for (int i = 0; i < modeNames.Length; i++)
+            {
+                var m = modes[i];
+                var btn = MakeHudButton(_workshopSection.transform, modeNames[i],
+                    () => _game.SetPendingMode(m), VisualAssets.HudButton);
+                Anchor(btn.GetComponent<RectTransform>(), new Vector2(0f, 1f),
+                    new Vector2(16 + i * 128, -64), new Vector2(120, 34));
+                var t = btn.GetComponentInChildren<Text>();
+                if (t != null) { t.fontSize = 13; t.color = VisualAssets.HudBody; }
+            }
+
+            _workshopMode = MakeText(_workshopSection.transform, "Mode", "", 18, TextAnchor.UpperLeft);
+            _workshopMode.color = VisualAssets.HudAccentGreen;
+            Anchor(_workshopMode.rectTransform, new Vector2(0f, 1f), new Vector2(16, -110), new Vector2(380, 24));
+
+            _workshopSeed = MakeText(_workshopSection.transform, "Seed", "", 14, TextAnchor.UpperLeft);
+            _workshopSeed.color = VisualAssets.HudBody;
+            Anchor(_workshopSeed.rectTransform, new Vector2(0f, 1f), new Vector2(16, -142), new Vector2(380, 48));
+
+            var sizeLabel = MakeText(_workshopSection.transform, "SizeLabel", "THEATER SIZE", 12, TextAnchor.UpperLeft);
+            sizeLabel.color = VisualAssets.HudMuted;
+            Anchor(sizeLabel.rectTransform, new Vector2(0f, 1f), new Vector2(16, -200), new Vector2(380, 16));
 
             int[] sizes = { 16, 20, 24, 28 };
             for (int i = 0; i < sizes.Length; i++)
             {
                 int size = sizes[i];
-                var sizeBtn = MakeButton(card.transform, size.ToString(),
-                    () => _game.WorkshopSetSize(size), new Color(0.30f, 0.30f, 0.46f));
+                var sizeBtn = MakeHudButton(_workshopSection.transform, size.ToString(),
+                    () => _game.WorkshopSetSize(size), VisualAssets.HudButton);
                 Anchor(sizeBtn.GetComponent<RectTransform>(), new Vector2(0f, 1f),
-                    new Vector2(22 + i * 94, -190), new Vector2(86, 42));
+                    new Vector2(16 + i * 94, -224), new Vector2(86, 36));
+                var st = sizeBtn.GetComponentInChildren<Text>();
+                if (st != null) { st.fontSize = 14; st.color = VisualAssets.HudBody; }
             }
 
-            var reroll = MakeButton(card.transform, "Reroll", () => _game.WorkshopReroll(),
-                new Color(0.30f, 0.30f, 0.46f));
-            Anchor(reroll.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(22, -250), new Vector2(180, 48));
+            var reroll = MakeHudButton(_workshopSection.transform, "REROLL", () => _game.WorkshopReroll(), VisualAssets.HudButton);
+            Anchor(reroll.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(16, -278), new Vector2(180, 40));
+            var standard = MakeHudButton(_workshopSection.transform, "STANDARD", () => _game.WorkshopUseStandard(), VisualAssets.HudButton);
+            Anchor(standard.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(208, -278), new Vector2(180, 40));
 
-            var standard = MakeButton(card.transform, "Standard map", () => _game.WorkshopUseStandard(),
-                new Color(0.30f, 0.30f, 0.46f));
-            Anchor(standard.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(214, -250), new Vector2(180, 48));
+            var start = MakeHudButton(_workshopSection.transform, "DEPLOY  ·  START", () => _game.WorkshopStartMatch(),
+                VisualAssets.HudButtonPrimary);
+            Anchor(start.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(16, 68), new Vector2(250, 48));
+            var quit = MakeHudButton(_workshopSection.transform, "ABORT", () => _game.QuitGame(), VisualAssets.HudButtonDanger);
+            Anchor(quit.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(278, 68), new Vector2(110, 48));
 
-            var start = MakeButton(card.transform, "Start Match", () => _game.WorkshopStartMatch(),
-                new Color(0.22f, 0.42f, 0.32f));
-            Anchor(start.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(22, 74), new Vector2(240, 52));
+            var manual = MakeHudButton(_workshopSection.transform, "FIELD MANUAL", () => _game.ShowFieldManual(), VisualAssets.HudButton);
+            Anchor(manual.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(16, 16), new Vector2(180, 36));
+            var legend = MakeHudButton(_workshopSection.transform, "LEGEND", ToggleLegend, VisualAssets.HudButton);
+            Anchor(legend.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(208, 16), new Vector2(180, 36));
 
-            var back = MakeButton(card.transform, "Back", () => _game.CloseMapWorkshop(),
-                new Color(0.32f, 0.32f, 0.38f));
-            Anchor(back.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(278, 74), new Vector2(116, 52));
+            // ---- Command section ----
+            _commandSection = new GameObject("CommandSection");
+            _commandSection.transform.SetParent(card.transform, false);
+            StretchFull(_commandSection.AddComponent<RectTransform>());
+            _commandSection.SetActive(false);
 
-            var hint = MakeText(card.transform, "Hint",
-                "Preview only — Esc to go back. Autoplay still bypasses the workshop.",
-                14, TextAnchor.UpperLeft);
-            hint.color = new Color(0.7f, 0.7f, 0.75f);
-            Anchor(hint.rectTransform, new Vector2(0f, 0f), new Vector2(22, 40), new Vector2(380, 28));
+            var cmdHeader = MakeText(_commandSection.transform, "Header", "COMMAND", 14, TextAnchor.UpperLeft);
+            cmdHeader.color = VisualAssets.HudAccent;
+            Anchor(cmdHeader.rectTransform, new Vector2(0f, 1f), new Vector2(16, -12), new Vector2(380, 18));
+
+            _dockStatus = MakeText(_commandSection.transform, "Status", "", 13, TextAnchor.UpperLeft);
+            _dockStatus.supportRichText = true;
+            _dockStatus.color = VisualAssets.HudAccentGreen;
+            Anchor(_dockStatus.rectTransform, new Vector2(0f, 1f), new Vector2(16, -36), new Vector2(380, 72));
+
+            // Cameo frame
+            var cameoFrame = new GameObject("Cameo");
+            cameoFrame.transform.SetParent(_commandSection.transform, false);
+            cameoFrame.AddComponent<Image>().color = VisualAssets.HudPanelInner;
+            Anchor(cameoFrame.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(16, -118), new Vector2(88, 72));
+            AddBevel(cameoFrame.transform);
+
+            var iconGo = new GameObject("Icon");
+            iconGo.transform.SetParent(cameoFrame.transform, false);
+            _cameoIcon = iconGo.AddComponent<Image>();
+            _cameoIcon.preserveAspect = true;
+            _cameoIcon.color = Color.white;
+            var iconRect = iconGo.GetComponent<RectTransform>();
+            iconRect.anchorMin = new Vector2(0.1f, 0.1f);
+            iconRect.anchorMax = new Vector2(0.9f, 0.9f);
+            iconRect.offsetMin = Vector2.zero;
+            iconRect.offsetMax = Vector2.zero;
+
+            _cameoName = MakeText(_commandSection.transform, "CameoName", "NO UNIT SELECTED", 14, TextAnchor.UpperLeft);
+            _cameoName.color = VisualAssets.HudBody;
+            Anchor(_cameoName.rectTransform, new Vector2(0f, 1f), new Vector2(116, -118), new Vector2(270, 22));
+
+            var hpBack = new GameObject("HpBack");
+            hpBack.transform.SetParent(_commandSection.transform, false);
+            hpBack.AddComponent<Image>().color = VisualAssets.HudHpBack;
+            Anchor(hpBack.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(116, -146), new Vector2(270, 12));
+            var hpFill = new GameObject("HpFill");
+            hpFill.transform.SetParent(hpBack.transform, false);
+            _cameoHpFill = hpFill.AddComponent<Image>();
+            _cameoHpFill.color = VisualAssets.HudHpFill;
+            var hpRect = hpFill.GetComponent<RectTransform>();
+            hpRect.anchorMin = Vector2.zero;
+            hpRect.anchorMax = new Vector2(1f, 1f);
+            hpRect.pivot = new Vector2(0f, 0.5f);
+            hpRect.offsetMin = Vector2.zero;
+            hpRect.offsetMax = Vector2.zero;
+
+            _dockTelemetry = MakeText(_commandSection.transform, "Telemetry", "", 12, TextAnchor.UpperLeft);
+            _dockTelemetry.supportRichText = true;
+            _dockTelemetry.color = VisualAssets.HudMuted;
+            _dockTelemetry.horizontalOverflow = HorizontalWrapMode.Wrap;
+            Anchor(_dockTelemetry.rectTransform, new Vector2(0f, 1f), new Vector2(116, -164), new Vector2(270, 40));
+
+            var ordersLabel = MakeText(_commandSection.transform, "OrdersLabel", "ORDERS", 12, TextAnchor.UpperLeft);
+            ordersLabel.color = VisualAssets.HudMuted;
+            Anchor(ordersLabel.rectTransform, new Vector2(0f, 1f), new Vector2(16, -208), new Vector2(380, 16));
+
+            // Order tool grid 2x3
+            (string label, InputController.OrderTool tool)[] tools =
+            {
+                ("MOVE", InputController.OrderTool.Move),
+                ("ENGAGE", InputController.OrderTool.Engage),
+                ("SUPPORT", InputController.OrderTool.Support),
+                ("GARRISON", InputController.OrderTool.Hold),
+                ("SPLIT", InputController.OrderTool.Auto), // split handled separately
+            };
+            for (int i = 0; i < 4; i++)
+            {
+                int col = i % 2, row = i / 2;
+                var tool = tools[i].tool;
+                var label = tools[i].label;
+                var btn = MakeHudButton(_commandSection.transform, label, () => FindInput()?.SetTool(tool), VisualAssets.HudButton);
+                Anchor(btn.GetComponent<RectTransform>(), new Vector2(0f, 1f),
+                    new Vector2(16 + col * 190, -232 - row * 40), new Vector2(180, 36));
+                var lt = btn.GetComponentInChildren<Text>();
+                if (lt != null) { lt.fontSize = 13; lt.color = VisualAssets.HudBody; }
+                _orderToolImages[tool] = btn.GetComponent<Image>();
+                _orderToolButtons[tool] = btn.GetComponent<Button>();
+            }
+            var splitBtn = MakeHudButton(_commandSection.transform, "SPLIT", () => FindInput()?.ToggleSplitMode(), VisualAssets.HudButton);
+            Anchor(splitBtn.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(16, -312), new Vector2(180, 36));
+            var clearBtn = MakeHudButton(_commandSection.transform, "CLEAR Q", () => FindInput()?.ClearSelectedOrders(), VisualAssets.HudButton);
+            Anchor(clearBtn.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(206, -312), new Vector2(180, 36));
+            foreach (var b in new[] { splitBtn, clearBtn })
+            {
+                var lt = b.GetComponentInChildren<Text>();
+                if (lt != null) { lt.fontSize = 13; lt.color = VisualAssets.HudBody; }
+            }
+            _dockSplitButton = splitBtn.GetComponent<Button>();
+            _dockClearButton = clearBtn.GetComponent<Button>();
+            _dockSplitImage = splitBtn.GetComponent<Image>();
+            _dockClearImage = clearBtn.GetComponent<Image>();
+            UpdateDockOrderTools(null, canOrder: false, canSplit: false);
+
+            _dockEndTurn = MakeHudButton(_commandSection.transform, "END TURN", () => _game.SubmitEndTurn(),
+                VisualAssets.HudButtonPrimary);
+            Anchor(_dockEndTurn.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(16, 16), new Vector2(250, 48));
+            var endLabel = _dockEndTurn.GetComponentInChildren<Text>();
+            if (endLabel != null) { endLabel.fontSize = 18; endLabel.color = VisualAssets.HudAccent; }
+
+            var backMatch = MakeHudButton(_commandSection.transform, "MENU", () => _game.BackToMenu(), VisualAssets.HudButton);
+            Anchor(backMatch.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(278, 16), new Vector2(110, 48));
+        }
+
+        private void BuildMapBezel(Transform canvas)
+        {
+            _mapBezel = new GameObject("MapBezel");
+            _mapBezel.transform.SetParent(canvas, false);
+            _mapBezel.transform.SetAsFirstSibling();
+            var rect = _mapBezel.AddComponent<RectTransform>();
+            // Frame the left ~66% of the screen (map area), leaving the dock clear.
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = new Vector2(0.66f, 1f);
+            rect.offsetMin = new Vector2(4, 4);
+            rect.offsetMax = new Vector2(-4, -4);
+            // Hollow frame: four edge strips
+            void Edge(string name, Vector2 aMin, Vector2 aMax)
+            {
+                var go = new GameObject(name);
+                go.transform.SetParent(_mapBezel.transform, false);
+                var img = go.AddComponent<Image>();
+                img.color = VisualAssets.HudMapBezel;
+                img.raycastTarget = false;
+                var r = go.GetComponent<RectTransform>();
+                r.anchorMin = aMin;
+                r.anchorMax = aMax;
+                r.offsetMin = Vector2.zero;
+                r.offsetMax = Vector2.zero;
+            }
+            const float t = 0.012f;
+            Edge("Top", new Vector2(0, 1f - t), Vector2.one);
+            Edge("Bottom", Vector2.zero, new Vector2(1, t));
+            Edge("Left", Vector2.zero, new Vector2(t, 1));
+            Edge("Right", new Vector2(1f - t, 0), Vector2.one);
+        }
+
+        private static void StretchFull(RectTransform rect)
+        {
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+        }
+
+        private static void AddBevel(Transform parent)
+        {
+            void Strip(string name, Vector2 aMin, Vector2 aMax, Color c)
+            {
+                var go = new GameObject(name);
+                go.transform.SetParent(parent, false);
+                var img = go.AddComponent<Image>();
+                img.color = c;
+                img.raycastTarget = false;
+                var r = go.GetComponent<RectTransform>();
+                r.anchorMin = aMin;
+                r.anchorMax = aMax;
+                r.offsetMin = Vector2.zero;
+                r.offsetMax = Vector2.zero;
+            }
+            const float b = 0.008f;
+            Strip("BevelL", new Vector2(0, 0), new Vector2(b, 1), VisualAssets.HudBevelLight);
+            Strip("BevelT", new Vector2(0, 1f - b), new Vector2(1, 1), VisualAssets.HudBevelLight);
+            Strip("BevelR", new Vector2(1f - b, 0), new Vector2(1, 1), VisualAssets.HudBevelDark);
+            Strip("BevelB", new Vector2(0, 0), new Vector2(1, b), VisualAssets.HudBevelDark);
+        }
+
+        private static GameObject MakeHudButton(Transform parent, string label, UnityEngine.Events.UnityAction onClick, Color color)
+        {
+            var go = MakeButton(parent, label, onClick, color);
+            AddBevel(go.transform);
+            var text = go.GetComponentInChildren<Text>();
+            if (text != null)
+            {
+                text.fontSize = 14;
+                text.color = VisualAssets.HudBody;
+            }
+            return go;
         }
 
         private static GameObject MakePanel(Transform parent, string name)
@@ -849,7 +1102,7 @@ namespace Tactix.Game
             var go = new GameObject(name);
             go.transform.SetParent(parent, false);
             var image = go.AddComponent<Image>();
-            image.color = new Color(0.05f, 0.05f, 0.07f, 0.92f);
+            image.color = VisualAssets.HudPanel;
             var rect = go.GetComponent<RectTransform>();
             rect.anchorMin = Vector2.zero;
             rect.anchorMax = Vector2.one;
@@ -867,7 +1120,7 @@ namespace Tactix.Game
             text.text = content;
             text.fontSize = size;
             text.alignment = anchor;
-            text.color = Color.white;
+            text.color = VisualAssets.HudBody;
             text.horizontalOverflow = HorizontalWrapMode.Overflow;
             text.verticalOverflow = VerticalWrapMode.Overflow;
             return text;

@@ -103,7 +103,7 @@ can I kill?”
 
 | # | Work |
 |---|------|
-| 3.1 | Skirmish options: map source, size, fog on/off, turn limit, difficulty — **pre-game map generator** ([`docs/PREGAME_MAP_GENERATOR.md`](docs/PREGAME_MAP_GENERATOR.md)). **MG0–MG1 shipped:** Map Workshop (preview, size, Reroll, Standard, Start Match) + cartographic board (paper + contours + symbols). Remaining: fog, difficulty, MG2+ sliders |
+| 3.1 | Skirmish options: map source, size, fog on/off, turn limit, difficulty — **pre-game map generator** ([`docs/PREGAME_MAP_GENERATOR.md`](docs/PREGAME_MAP_GENERATOR.md)). **MG0–MG1 + map shell shipped:** C&C dock (workshop → command), gunmetal/amber HUD, cameo + order grid, rewritten generator/topo render. Remaining: fog, difficulty, MG2+ sliders |
 | 3.2 | Scenario pack (6–12): named maps, asymmetric OOB, short briefings (historical battles → backlog B2) |
 | 3.3 | Debrief screen: score timeline, losses, outcome reason |
 | 3.4 | Optional campaign lite (5 linked battles) — cut if schedule slips |
@@ -254,7 +254,7 @@ schema stability remains a top value for training data.
 1. Finish multi-select + group Move / Engage / Garrison.
 2. First-game tutorial overlay.
 3. Start `TacticalBot` (objective + focus-fire heuristics).
-4. Pre-game map generator MG0–MG1 — **done** (Map Workshop + cartographic map). MG2+ next.
+4. Pre-game map generator MG0–MG1 + C&C map shell — **done**. MG2+ next.
 
 ---
 
